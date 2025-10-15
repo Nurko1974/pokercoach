@@ -2,573 +2,340 @@
 <html lang="nl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Poker Coach</title>
-
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#0b0b0b" />
-  <link rel="apple-touch-icon" href="/icon-192.png" />
-  <link rel="stylesheet" href="style.css" />
-  <script type="module" crossorigin src="/assets/index-DFygKoBP.js"></script>
-
+  <meta name="theme-color" content="#0b0b0b">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-192.png">
   <style>
     :root{
-      --card:#0b0b0b; --ink:#eee; --muted:#9aa3ad; --line:#1d1f22; --accent:#2dd4bf;
-      --btn:#17191c; --btn-hi:#1f2327;
+      --bg:#0b0b0b; --fg:#f3f3f3; --muted:#a7a7a7; --accent:#22c55e; --warn:#f59e0b; --danger:#ef4444; 
+      --card:#161616; --border:#2a2a2a;
     }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
-      background:#0a0a0a; color:var(--ink); line-height:1.45;
+    *{box-sizing:border-box;font-family:system-ui,Segoe UI,Roboto,Arial}
+    body{margin:0;background:var(--bg);color:var(--fg)}
+    h1{margin:16px 16px 8px;font-size:22px}
+    .wrap{display:grid;gap:12px;padding:12px}
+    .grid{display:grid;gap:12px}
+    @media(min-width:900px){.grid{grid-template-columns:1.2fr .8fr}}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px}
+    .card h2{margin:0 0 8px;font-size:16px;color:var(--muted)}
+    .card .inner{padding:12px}
+    video{width:100%;height:340px;background:#000;border-radius:12px;object-fit:cover}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    button{
+      appearance:none;border:1px solid var(--border);background:#1f1f1f;
+      color:var(--fg);padding:12px 16px;border-radius:12px;font-weight:600;cursor:pointer;
+      transition:transform .02s ease-in-out
     }
-    h1,h2{margin:12px 0 8px}
-    .container{max-width:1100px; margin:0 auto; padding:20px}
-    .card{
-      background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px;
-      box-shadow:0 0 0 1px rgba(255,255,255,0.02) inset;
+    button:active{transform:scale(.98)}
+    .btn-primary{background:var(--accent);color:#06210f;border-color:#1f7a43}
+    .btn-warn{background:var(--warn);color:#231a02;border-color:#8a6506}
+    .btn-danger{background:var(--danger);color:#2a0707;border-color:#9b1c1c}
+    .btn-ghost{background:#1b1b1b}
+    .btn-lg{padding:14px 18px;font-size:16px}
+    .status{font-size:13px;color:var(--muted)}
+    .fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .fields label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
+    .fields input, .fields select{
+      width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);
+      background:#111;color:var(--fg)
     }
-    .grid{display:grid; gap:10px}
-    @media(min-width:720px){ .grid-cols{grid-template-columns:repeat(3,minmax(220px,1fr))} }
-    label{font-size:.9rem; color:var(--muted); display:flex; flex-direction:column; gap:6px}
-    input,select{
-      background:#121417; border:1px solid var(--line); color:var(--ink);
-      border-radius:10px; padding:10px 12px; outline:none;
-    }
-    input:focus,select:focus{border-color:#334155; box-shadow:0 0 0 3px rgba(51,65,85,.35)}
-    .btnbar{display:flex; flex-wrap:wrap; gap:12px; justify-content:center}
-    .btn{
-      background:var(--btn); border:1px solid var(--line); color:var(--ink);
-      padding:12px 26px; font-size:1.06rem; border-radius:12px; cursor:pointer;
-    }
-    .btn:hover{background:var(--btn-hi)}
-    .muted{color:var(--muted)}
-    #cameraWrap{width:100%; max-width:100%; aspect-ratio:16/9; background:#000; border:1px solid #111; border-radius:12px; overflow:hidden}
-    #camera{width:100%; height:100%; object-fit:cover; object-position:center; display:block; background:#000}
-    #adviceOutput{margin-top:12px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#0f1114}
-    .kv{display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap}
-    .kv > div{min-width:180px}
-    /* math widget */
-    #mathOutput{margin-top:10px; padding:12px; border:1px solid var(--line); border-radius:10px; background:#0e1013}
-    #mathOutput .row{display:flex; flex-wrap:wrap; gap:14px}
-    #mathOutput .pill{background:#1a2430; border:1px solid #223; border-radius:999px; padding:6px 10px; font-size:.92rem}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;
+      background:#121212;border:1px solid var(--border);font-size:12px;color:var(--muted)}
+    .ok{color:#10b981}.maybe{color:#f59e0b}.bad{color:#ef4444}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+    .scanlog{white-space:pre-wrap;background:#0f0f0f;border:1px dashed #333;border-radius:10px;padding:10px;font-size:12px;color:#c9c9c9}
   </style>
 </head>
-
 <body>
-  <div class="container">
-    <h1>Poker Coach</h1>
+  <h1>Poker Coach</h1>
 
-    <!-- === PRE-FLOP ADVIES === -->
-    <section id="poker-advice" class="card" aria-labelledby="advice-title">
-      <h2 id="advice-title">Advies & Rekentool</h2>
-      <div class="grid grid-cols" style="margin:8px 0 12px">
-        <label>Jouw hand (bv. AhKh, 9c9d, AsQs)
-          <input id="adv-hand" placeholder="Bv. AhKh" autocomplete="off" />
-        </label>
-        <label>Jouw positie (UTG, MP, CO, BTN, SB, BB)
-          <select id="adv-heroPos">
-            <option>UTG</option><option>MP</option><option selected>CO</option>
-            <option>BTN</option><option>SB</option><option>BB</option>
-          </select>
-        </label>
-        <label>Aantal tegenstanders (aan tafel)
-          <input id="adv-players" type="number" min="2" max="9" value="6" />
-        </label>
-        <label>Tegenstander type
-          <select id="adv-villainType">
-            <option value="normal" selected>Normal</option>
-            <option value="tight">Tight</option>
-            <option value="loose">Loose</option>
-            <option value="aggro">Aggro</option>
-            <option value="passive">Passive</option>
-          </select>
-        </label>
-        <label>Situatie
-          <select id="adv-situation">
-            <option value="first-in" selected>First-in (open)</option>
-            <option value="limpers">Er zijn limpers</option>
-            <option value="facing-raise">Facing raise</option>
-          </select>
-        </label>
-        <label>Aantal limpers (als van toepassing)
-          <input id="adv-limpers" type="number" min="0" value="0" />
-        </label>
-        <label>Opener positie (als facing raise)
-          <select id="adv-openerPos">
-            <option>UTG</option><option>MP</option><option>CO</option>
-            <option>BTN</option><option>SB</option><option>BB</option>
-          </select>
-        </label>
-        <label>Open/raise size in bb (optioneel)
-          <input id="adv-raiseSize" type="number" step="0.5" value="2.5" />
-        </label>
-        <label>Pot (bb, optioneel)
-          <input id="adv-pot" type="number" step="0.5" value="3" />
-        </label>
-      </div>
-
-      <button id="generateAdviceBtn" class="btn">💡 Bereken advies</button>
-      <div id="adviceOutput" class="muted">Vul je parameters in en klik op <em>Bereken advies</em>.</div>
-
-      <!-- ▶ Pot-odds & Break-even widget (stap 2) -->
-      <div id="mathOutput" aria-live="polite">
-        <div style="font-weight:600; margin-bottom:6px;">Pot-odds & Break-even</div>
-        <div class="row" id="mathRow">
-          <!-- wordt gevuld door JS -->
+  <div class="wrap grid">
+    <!-- CAMERA + CONTROLS -->
+    <section class="card">
+      <div class="inner">
+        <h2>Scanner</h2>
+        <video id="camera" playsinline muted></video>
+        <div class="row" style="margin-top:10px">
+          <button id="btnStart" class="btn-lg btn-primary">Camera aan</button>
+          <button id="btnStop" class="btn-lg btn-danger">Camera uit</button>
+          <button id="btnCalibrate" class="btn-lg btn-ghost">Kalibreer</button>
+          <button id="btnScan" class="btn-lg btn-warn">Scannen</button>
+          <button id="btnAdvice" class="btn-lg btn-ghost">Toon advies</button>
+          <span id="status" class="status"></span>
         </div>
-        <div class="muted" style="margin-top:8px; font-size:.9rem">
-          <em>Let op:</em> eenvoudige aannames: call-kosten corrigeren voor SB/BB; 3-bet-suggestie 3× IP / 4× OOP; FE-drempel = <code>risk/(risk+reward)</code>.
+        <div class="row" style="margin-top:8px">
+          <span class="pill">Kalibratie: <strong id="calibState" class="ok">OK</strong></span>
+          <span class="pill">Herkenning: <strong id="recConf" class="maybe">–</strong></span>
+          <span class="pill">FPS: <strong id="fps" class="">–</strong></span>
         </div>
       </div>
-
-      <div class="muted" style="margin-top:8px"><em>Tip:</em> ranges zijn GTO-achtig en licht aangepast voor tafelgrootte &amp; tegenstandertype.</div>
     </section>
 
-    <hr style="border:none; border-top:1px solid var(--line); margin:18px 0" />
+    <!-- FIELDS + RESULT -->
+    <section class="card">
+      <div class="inner">
+        <h2>Gevulde velden</h2>
+        <div class="fields">
+          <div>
+            <label for="hand">Jouw hand</label>
+            <input id="hand" placeholder="Bijv. AhKh" autocomplete="off">
+          </div>
+          <div>
+            <label for="positie">Positie</label>
+            <select id="positie">
+              <option value="">–</option>
+              <option>UTG</option><option>UTG+1</option><option>MP</option>
+              <option>CO</option><option>BTN</option><option>SB</option><option>BB</option>
+            </select>
+          </div>
+          <div>
+            <label for="players"># Spelers aan tafel</label>
+            <input id="players" type="number" min="2" max="10" placeholder="6">
+          </div>
+          <div>
+            <label for="callers"># Callers</label>
+            <input id="callers" type="number" min="0" max="9" placeholder="0">
+          </div>
+          <div>
+            <label for="raisers"># Raisers</label>
+            <input id="raisers" type="number" min="0" max="3" placeholder="0">
+          </div>
+          <div>
+            <label for="pot">Pot (preflop)</label>
+            <input id="pot" type="number" step="0.01" placeholder="0.00">
+          </div>
+          <div>
+            <label for="stack">Jouw stack</label>
+            <input id="stack" type="number" step="1" placeholder="100">
+          </div>
+          <div>
+            <label for="blinds">Blinds</label>
+            <input id="blinds" placeholder="1/2, 0.5/1, etc.">
+          </div>
+        </div>
 
-    <!-- === SCANNER === -->
-    <section id="poker-scanner" class="card" aria-labelledby="scanner-title">
-      <h2 id="scanner-title">📷 Pokerhand Scanner</h2>
-
-      <div id="cameraWrap" aria-label="camera">
-        <video id="camera" autoplay playsinline muted></video>
+        <div style="margin-top:10px">
+          <label>Laatste scan (debug):</label>
+          <div id="scanLog" class="scanlog mono">Nog geen scan uitgevoerd.</div>
+        </div>
       </div>
-      <canvas id="scannerCanvas" style="display:none"></canvas>
-
-      <div class="btnbar" style="margin-top:16px">
-        <button id="startBtn" class="btn">▶ Start camera</button>
-        <button id="stopBtn"  class="btn">⏹ Stop camera</button>
-        <button id="calibrateBtn" class="btn">🎯 Kalibreren</button>
-        <button id="resultBtn" class="btn">🃏 Scanresultaat</button>
-        <button id="scanShowAdviceBtn" class="btn">💡 Toon advies</button>
-      </div>
-
-      <p id="scannerStatus" class="muted" style="margin-top:12px">Gereed…</p>
-      <div id="scanResult" style="margin-top:10px; max-width:800px; margin-inline:auto"></div>
-      <div id="scanAdvice" style="margin-top:12px; font-size:1.06rem; font-style:italic; color:#7dd3fc"></div>
     </section>
   </div>
 
   <script>
-    // ================================
-    // STATE LAYER
-    // ================================
-    const STORAGE_KEY = 'pokerCoachStateV1';
-    const defaultState = {
-      handRaw: '',
-      pos: 'CO',
-      players: 6,
-      villainType: 'normal',
-      situation: 'first-in',
-      numLimpers: 0,
-      openerPos: 'UTG',
-      raiseSize: 2.5,
-      potSize: 3
-    };
-    let appState = loadState();
-
-    function loadState() {
-      try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? { ...defaultState, ...JSON.parse(raw) } : { ...defaultState }; }
-      catch { return { ...defaultState }; }
-    }
-    function saveState() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(appState)); } catch {} }
-
-    const fieldMap = {
-      'adv-hand':       'handRaw',
-      'adv-heroPos':    'pos',
-      'adv-players':    'players',
-      'adv-villainType':'villainType',
-      'adv-situation':  'situation',
-      'adv-limpers':    'numLimpers',
-      'adv-openerPos':  'openerPos',
-      'adv-raiseSize':  'raiseSize',
-      'adv-pot':        'potSize'
+  // ======= Camera & Scanner Integratie =======
+  (function(){
+    const els = {
+      video: document.getElementById('camera'),
+      btnStart: document.getElementById('btnStart'),
+      btnStop: document.getElementById('btnStop'),
+      btnCalibrate: document.getElementById('btnCalibrate'),
+      btnScan: document.getElementById('btnScan'),
+      btnAdvice: document.getElementById('btnAdvice'),
+      status: document.getElementById('status'),
+      calibState: document.getElementById('calibState'),
+      recConf: document.getElementById('recConf'),
+      fps: document.getElementById('fps'),
+      // fields:
+      hand: document.getElementById('hand'),
+      positie: document.getElementById('positie'),
+      players: document.getElementById('players'),
+      callers: document.getElementById('callers'),
+      raisers: document.getElementById('raisers'),
+      pot: document.getElementById('pot'),
+      stack: document.getElementById('stack'),
+      blinds: document.getElementById('blinds'),
+      scanLog: document.getElementById('scanLog'),
     };
 
-    function applyStateToUI() {
-      for (const [id, key] of Object.entries(fieldMap)) {
-        const el = document.getElementById(id); if (!el) continue;
-        const v = appState[key];
-        if (el.tagName === 'INPUT') el.value = v;
-        else if (el.tagName === 'SELECT') el.value = v;
+    let stream = null;
+    let rafId = null;
+    let lastFpsTime = 0, frames = 0;
+
+    // --- Camera controls ---
+    async function startCamera(){
+      try{
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        els.video.srcObject = stream;
+        await els.video.play();
+        tickFps();
+        setStatus('Camera actief.');
+      }catch(err){
+        setStatus('Camera fout: ' + err.message);
       }
     }
-    function readUIToState() {
-      for (const [id, key] of Object.entries(fieldMap)) {
-        const el = document.getElementById(id); if (!el) continue;
-        let v = el.value;
-        if (['players','numLimpers','raiseSize','potSize'].includes(key)) v = Number(v);
-        appState[key] = v;
+    function stopCamera(){
+      cancelAnimationFrame(rafId);
+      if(stream){
+        stream.getTracks().forEach(t=>t.stop());
+        stream = null;
       }
-      saveState();
+      els.video.srcObject = null;
+      els.fps.textContent = '–';
+      setStatus('Camera uit.');
     }
-    function bindInputSync() {
-      for (const id of Object.keys(fieldMap)) {
-        const el = document.getElementById(id); if (!el) continue;
-        const ev = (el.tagName === 'INPUT') ? 'input' : 'change';
-        el.addEventListener(ev, () => { readUIToState(); renderMathFromState(); });
+    function tickFps(time){
+      frames++;
+      if(!lastFpsTime) lastFpsTime = time || performance.now();
+      const now = time || performance.now();
+      if(now - lastFpsTime > 1000){
+        els.fps.textContent = frames.toString();
+        frames = 0;
+        lastFpsTime = now;
       }
+      rafId = requestAnimationFrame(tickFps);
+    }
+    function setStatus(msg){ els.status.textContent = msg; }
+
+    // --- Kalibratie (dummy + hook) ---
+    async function calibrate(){
+      // Hier kun je bv. een referentiekader vastleggen (tafelranden, HUD-positie, crop-regio's)
+      await ScannerService.calibrate(els.video);
+      els.calibState.textContent = 'OK';
+      els.calibState.className = 'ok';
+      setStatus('Kalibratie voltooid.');
     }
 
-    // ================================
-    // Poker helpers (zoals eerder)
-    // ================================
-    function canonHand(raw) {
-      if (!raw) return null;
-      const s = raw.replace(/[^2-9TJQKAshdc]/gi, '').toUpperCase();
-      if (s.length < 4) return null;
-      const r1 = s[0], s1 = s[1], r2 = s[2], s2 = s[3];
-      const ranksOrder = '23456789TJQKA';
-      const suited = s1 === s2;
-      const [hi, lo] = (ranksOrder.indexOf(r1) >= ranksOrder.indexOf(r2)) ? [r1, r2] : [r2, r1];
-      if (hi === lo) return hi + hi;
-      return hi + lo + (suited ? 's' : 'o');
+    // --- Scannen -> velden vullen ---
+    async function scan(){
+      setStatus('Scannen…');
+      const data = await ScannerService.scan(els.video);
+      // verwacht data als:
+      // {
+      //   hand: "AhKh", positie: "UTG", players: 6,
+      //   callers: 0, raisers: 1, pot: 3.5, stack: 120, blinds: "1/2",
+      //   confidence: 0.86, raw: { ... }
+      // }
+      fillFieldsFromScan(data);
+      logScan(data);
+      updateConfidence(data.confidence);
+      setStatus('Scan gereed.');
     }
-    function expandRange(rangeStr) {
-      const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
-      const idx = r => ranks.indexOf(r);
-      const out = new Set();
-      if (!rangeStr) return out;
-      const tokens = rangeStr.replace(/\s+/g,'').split(',');
-      for (let token of tokens) {
-        if (!token) continue;
-        if (/^Axs$/.test(token)) { for (let j=0;j<ranks.length-1;j++) out.add('A'+ranks[j]+'s'); continue; }
-        if (/^Axo$/.test(token)) { for (let j=0;j<ranks.length-1;j++) out.add('A'+ranks[j]+'o'); continue; }
-        if (/^([2-9TJQKA])\1\+$/.test(token)) { const start=token[0]; for (let i=idx(start); i<ranks.length; i++) out.add(ranks[i]+ranks[i]); continue; }
-        if (/^([2-9TJQKA])\1-([2-9TJQKA])\2$/.test(token)) {
-          const [,hi,lo]=token.match(/^([2-9TJQKA])\1-([2-9TJQKA])\2$/);
-          for (let i=idx(lo); i<=idx(hi); i++) out.add(ranks[i]+ranks[i]); continue;
-        }
-        if (/^([2-9TJQKA])([2-9TJQKA])[so]\+$/.test(token)) {
-          const [,hi,lo]=token.match(/^([2-9TJQKA])([2-9TJQKA])[so]\+$/);
-          const suited = token.includes('s'); const loStart=idx(lo); const hiIdx=idx(hi);
-          for (let j=loStart; j<hiIdx; j++) out.add(hi + ranks[j] + (suited?'s':'o')); continue;
-        }
-        if (/^([2-9TJQKA])([2-9TJQKA])[so]-([2-9TJQKA])([2-9TJQKA])[so]$/.test(token)) {
-          const m=token.match(/^([2-9TJQKA])([2-9TJQKA])([so])-([2-9TJQKA])([2-9TJQKA])([so])$/);
-          const hi1=m[1], lo1=m[2], s1=m[3]==='s'; const hi2=m[4], lo2=m[5], s2=m[6]==='s';
-          if (hi1===hi2 && s1===s2) { const a=idx(lo2), b=idx(lo1); for (let j=a;j<=b;j++) out.add(hi1+ranks[j]+(s1?'s':'o')); }
-          continue;
-        }
-        if (/^[2-9TJQKA][2-9TJQKA][so]$/.test(token)) { out.add(token); continue; }
-        if (/^([2-9TJQKA])\1$/.test(token)) { out.add(token); continue; }
-      }
-      return out;
-    }
-    function inRange(hand, rangeStr) { return hand ? expandRange(rangeStr).has(hand) : false; }
 
-    const OPEN_RANGES = {
-      UTG: '77+,A2s+,KTs+,QTs+,JTs,T9s,98s,AQo+,KQo',
-      MP:  '66+,A2s+,K9s+,QTs+,JTs,T9s,98s,87s,AQo+,KQo',
-      CO:  '55+,A2s+,K8s+,Q9s+,J9s+,T8s+,97s+,AJo+,KQo',
-      BTN: '44+,A2s+,K6s+,Q8s+,J8s+,T8s+,98s,87s,76s,A9o+,KTo+,QTo+,JTo',
-      SB:  '66+,A2s+,K9s+,Q9s+,J9s+,T9s,98s,AQo+,KQo',
-      BB:  'TT-22,Axs,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo'
+    function updateConfidence(c){
+      if(typeof c !== 'number'){ els.recConf.textContent = '–'; els.recConf.className='maybe'; return; }
+      const pct = Math.round(c*100);
+      els.recConf.textContent = pct + '%';
+      els.recConf.className = pct >= 85 ? 'ok' : (pct >= 60 ? 'maybe' : 'bad');
+    }
+
+    function fillFieldsFromScan(d){
+      // Alleen invullen wanneer er een waarde is, zodat handmatige correctie behouden blijft
+      if(d.hand) els.hand.value = d.hand;
+      if(d.positie) els.positiesel ? els.positiesel.value = d.positie : els.positie.value = d.positie;
+      if(Number.isFinite(d.players)) els.players.value = d.players;
+      if(Number.isFinite(d.callers)) els.callers.value = d.callers;
+      if(Number.isFinite(d.raisers)) els.raisers.value = d.raisers;
+      if(Number.isFinite(d.pot)) els.pot.value = d.pot;
+      if(Number.isFinite(d.stack)) els.stack.value = d.stack;
+      if(d.blinds) els.blinds.value = d.blinds;
+    }
+
+    function logScan(d){
+      els.scanLog.textContent = JSON.stringify(d, null, 2);
+    }
+
+    // --- Advies (hook; gebruikt ingevulde velden) ---
+    function showAdvice(){
+      const input = {
+        hand: els.hand.value.trim(),
+        positie: els.positie.value,
+        players: +els.players.value || null,
+        callers: +els.callers.value || 0,
+        raisers: +els.raisers.value || 0,
+        pot: +els.pot.value || 0,
+        stack: +els.stack.value || 0,
+        blinds: els.blinds.value.trim()
+      };
+      // Hier koppel je jouw GTO/regels aan de ingevulde waarden:
+      const advies = SimpleAdvisor.advise(input);
+      alert(`Advies: ${advies.action}\n\nUitleg: ${advies.reason}`);
+    }
+
+    // --- Events ---
+    els.btnStart.addEventListener('click', startCamera);
+    els.btnStop.addEventListener('click', stopCamera);
+    els.btnCalibrate.addEventListener('click', calibrate);
+    els.btnScan.addEventListener('click', scan);
+    els.btnAdvice.addEventListener('click', showAdvice);
+
+    // ======= ScannerService =======
+    // Vervang de inhoud van scan() door jouw echte herkenning (Tesseract, TensorFlow, OpenCV.js, HUD parsing).
+    const ScannerService = {
+      calibrated: false,
+      async calibrate(videoEl){
+        // Voorbeeld: bereken crop-regio's aan de hand van resolutie
+        this.calibrated = true;
+        return true;
+      },
+      async scan(videoEl){
+        if(!this.calibrated){
+          // auto-kalibreer als user dat vergat
+          await this.calibrate(videoEl);
+        }
+
+        // -----
+        // Plaats hier jouw echte herkenning:
+        // - Lees frame van videoEl naar canvas
+        // - OCR: Tesseract.js (blinds, stacks, HUD tekst)
+        // - Card detection: template matching / ML / kleur-masks
+        // - Positie: HUD highlight of seat index
+        // - #players: getelde avatars/stoelen actief
+        // -----
+
+        // Dummy voorbeeldresultaat (zodat de flow al werkt)
+        const dummy = this._mockDetect();
+        return dummy;
+      },
+      _mockDetect(){
+        // Simuleer realistische variatie, om de UI te testen
+        const pos = ['UTG','UTG+1','MP','CO','BTN','SB','BB'][Math.floor(Math.random()*7)];
+        const hands = ['AhKh','QsQd','9c9s','AdJs','7h8h','KcQc'];
+        const val = hands[Math.floor(Math.random()*hands.length)];
+        const players = [6,7,8,9][Math.floor(Math.random()*4)];
+        const callers = Math.floor(Math.random()*3);
+        const raisers = Math.floor(Math.random()*2);
+        const pot = +(Math.random()*6+1).toFixed(2);
+        const stack = Math.floor(Math.random()*150)+50;
+        const blinds = Math.random()>0.5 ? '1/2' : '0.5/1';
+        const confidence = +(0.6 + Math.random()*0.35).toFixed(2);
+        return {
+          hand: val, positie: pos, players, callers, raisers, pot, stack, blinds,
+          confidence,
+          raw: { note: 'mock-resultaat ter illustratie' }
+        };
+      }
     };
-    const ISO_RANGES = {
-      EP: '77+,A2s+,KTs+,QTs+,JTs,T9s,AQo+',
-      MP: '66+,A2s+,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo',
-      LP: '55+,A2s+,K9s+,Q9s+,J9s+,T8s+,98s,87s,AJo+,KTo+,QTo+,JTo'
+
+    // ======= SimpleAdvisor (placeholder) =======
+    const SimpleAdvisor = {
+      advise(input){
+        // Supersimpel voorbeeld (vervang dit door jouw GTO/regels)
+        // Voorbeeldregel: 100bb deep, BTN en geen raise => open-raise.
+        const deep = input.stack && input.blinds && parseFloat(input.blinds.split('/')[1]||input.blinds) ? 
+          input.stack / parseFloat(input.blinds.split('/')[1]||input.blinds) : null;
+
+        if(input.positie==='BTN' && input.raisers===0){
+          return { action: 'Open-raise 2.5bb', reason: 'Button, geen raise voor je, brede opening toegestaan.' };
+        }
+        if(input.raisers>=1 && /A[KQJ]|QQ|JJ|TT/.test(input.hand)){
+          return { action: '3-bet', reason: 'Sterke hand tegen eerdere raise.' };
+        }
+        if(input.raisers>=1 && !/A[KQJ]|QQ|JJ|TT/.test(input.hand)){
+          return { action: 'Fold', reason: 'Eerdere agressie en hand buiten 3-bet range.' };
+        }
+        if(deep && deep < 30 && input.hand.match(/[KQJT]s/)){
+          return { action: 'Shove of 3-bet jam', reason: 'Short stack met speelbare suited broadway.' };
+        }
+        return { action: 'Check/Fold', reason: 'Conservatief default advies; verfijn met echte ranges.' };
+      }
     };
-    const THREEBET_VS_OPEN = {
-      EP: 'QQ+,AKs,AKo',
-      MP: 'JJ+,AKs,AKo,AQs',
-      LP: 'TT+,AKs,AKo,AQs,AQo,KQs',
-      SB: 'JJ+,AKs,AKo,AQs',
-      BB: 'JJ+,AKs,AKo,AQs'
-    };
-    const CALL_VS_OPEN = {
-      EP: 'JJ-77,AQs-AJs,KQs',
-      MP: 'TT-66,AQs-AJs,ATs,KQs,QJs,JTs,T9s,98s',
-      LP: '99-55,AQs-ATs,AJo,KQs,KJs,QJs,JTs,T9s,98s,87s,76s',
-      SB: 'TT-66,AQs-ATs,KQs,QJs,JTs,T9s,98s',
-      BB: '99-22,Axs,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo'
-    };
 
-    function bucket(pos) {
-      if (pos==='UTG') return 'EP';
-      if (pos==='MP')  return 'MP';
-      if (pos==='CO' || pos==='BTN') return 'LP';
-      if (pos==='SB') return 'SB';
-      return 'BB';
-    }
-    function adjustByPlayers(rangeStr, players) {
-      if (!rangeStr) return rangeStr;
-      if (players <= 5) return rangeStr + ',K9s,Q9s,J9s,T8s,97s,KJo,QJo,JTo';
-      if (players >= 8) return rangeStr.replace(/,KTo\+?|,QTo\+?|,JTo/g,'');
-      return rangeStr;
-    }
-    function adjustByVillain(rangeStr, type) {
-      if (!rangeStr) return rangeStr;
-      const t = (type||'').toLowerCase();
-      if (t==='loose' || t==='aggro') return rangeStr + ',A8o,KTo';
-      if (t==='tight' || t==='passive') return rangeStr.replace(/,AJo\+?/,'');
-      return rangeStr;
-    }
-    function openSize(pos, limpers=0, oop=false) {
-      if (limpers>0) { const base=3; return (base + limpers + (oop?1:0)).toFixed(1)+'bb'; }
-      if (pos==='CO' || pos==='BTN') return '2.5bb';
-      return '3bb';
-    }
-    const threeBetSizeText = (ip) => (ip ? '3x open' : '4x open');
-
-    function getPokerAdviceFull(params) {
-      const {
-        handRaw, pos, players, villainType, situation,
-        numLimpers=0, openerPos='UTG'
-      } = params;
-
-      const hand = canonHand(handRaw);
-      if (!hand) return { action:'—', reason:'Ongeldige of lege hand. Gebruik bijv. AhKh of 9c9d.' };
-
-      if (situation==='first-in') {
-        let r = OPEN_RANGES[pos] || OPEN_RANGES.UTG;
-        r = adjustByPlayers(r, players);
-        r = adjustByVillain(r, villainType);
-        if (inRange(hand, r)) {
-          const size = openSize(pos, 0, (pos==='SB'||pos==='BB'));
-          return { action:`Open-raise ${size}`, reason:`${hand} valt in de ${pos}-open range.` };
-        }
-        return { action:'Fold', reason:`${hand} zit niet in de ${pos}-open range bij ${players}-handed.` };
-      }
-
-      if (situation==='limpers') {
-        const b = bucket(pos);
-        let r = ISO_RANGES[b==='LP' ? 'LP' : (b==='MP' ? 'MP' : 'EP')];
-        r = adjustByPlayers(r, players);
-        r = adjustByVillain(r, villainType);
-        if (inRange(hand, r)) {
-          const size = openSize(pos, Number(numLimpers||0), (pos==='SB'||pos==='BB'));
-          return { action:`Iso-raise ${size}`, reason:`${hand} is goed als iso tegen ${numLimpers} limper(s) vanuit ${pos}.` };
-        }
-        const sc = '54s,65s,76s,87s,98s,T9s,JTs';
-        if ((pos==='CO'||pos==='BTN') && inRange(hand, sc) && numLimpers>=2) {
-          return { action:`Iso-raise ${openSize(pos, numLimpers)} of Call`, reason:`Speculatieve hand + meerdere limpers in positie.` };
-        }
-        return { action:'Check/Overlimp of Fold', reason:`Te marginaal om te isoleren vanuit ${pos}.` };
-      }
-
-      if (situation==='facing-raise') {
-        const b = bucket(pos);
-        let r3 = THREEBET_VS_OPEN[b] || THREEBET_VS_OPEN.MP;
-        let rc = CALL_VS_OPEN[b]      || CALL_VS_OPEN.MP;
-
-        r3 = adjustByPlayers(r3, players);
-        rc = adjustByPlayers(rc, players);
-        r3 = adjustByVillain(r3, villainType);
-        rc = adjustByVillain(rc, villainType);
-
-        const ip = (pos==='CO'||pos==='BTN') && !(openerPos==='BTN');
-        if (inRange(hand, r3))  return { action:`3-bet naar ${threeBetSizeText(ip)}`, reason:`${hand} valt in 3-bet range (${b}) vs open uit ${openerPos}.` };
-        if (inRange(hand, rc))  return { action:'Call', reason:`${hand} valt in call range (${b}) vs open uit ${openerPos}.` };
-        return { action:'Fold', reason:`${hand} niet winstgevend als call/3-bet (${b}) vs ${openerPos} open.` };
-      }
-
-      return { action:'—', reason:'Onbekende situatie.' };
-    }
-
-    // ================================
-    // Rendering & Math widget
-    // ================================
-    const adviceOutEl = document.getElementById('adviceOutput');
-    const mathRowEl   = document.getElementById('mathRow');
-
-    function postedBlindBB(pos){
-      if (pos==='SB') return 0.5;
-      if (pos==='BB') return 1;
-      return 0;
-    }
-    function isIP(pos, openerPos){
-      // simpele check: IP wanneer we CO/BTN zijn en opener niet BTN is
-      return (pos==='CO' || pos==='BTN') && openerPos!=='BTN';
-    }
-    function toPct(x){ return isFinite(x) ? (100*x).toFixed(1)+'%' : '—'; }
-    function bb(x){ return isFinite(x) ? (x.toFixed(1)+' bb') : '—'; }
-
-    function renderAdviceFromState() {
-      readUIToState();
-      const res = getPokerAdviceFull(appState);
-      adviceOutEl.innerHTML = `
-        <div class="kv">
-          <div><strong>Actie:</strong> ${res.action}</div>
-          <div><strong>Reden:</strong> ${res.reason}</div>
-        </div>
-      `;
-      renderMathFromState();
-      return res;
-    }
-
-    function renderMathFromState(){
-      const s = appState;
-      const pos = s.pos.toUpperCase();
-      const posted = postedBlindBB(pos);
-      const ip = isIP(pos, (s.openerPos||'UTG').toUpperCase());
-
-      // Call metrics (alleen relevant bij facing-raise)
-      let callCost = null, potOdds = null, beq = null;
-      if (s.situation === 'facing-raise') {
-        callCost = Math.max(s.raiseSize - posted, 0);
-        potOdds  = callCost / (s.potSize + callCost);
-        beq      = potOdds; // break-even equity voor een call
-      }
-
-      // 3-bet metrics (heuristisch, IP 3x / OOP 4x)
-      let threeBetSz   = (ip ? 3 : 4) * s.raiseSize;
-      let risk         = Math.max(threeBetSz - posted, 0);
-      let reward       = s.potSize + s.raiseSize; // we winnen pot + villain's open als hij foldt
-      let feBreakEven  = risk / (risk + reward);
-
-      // Render
-      const chips = [];
-      chips.push(`<span class="pill">Pot: ${bb(s.potSize)}</span>`);
-      chips.push(`<span class="pill">Open/Raise: ${bb(s.raiseSize)}</span>`);
-      chips.push(`<span class="pill">Positie: ${pos}${posted?` (posted ${posted}bb)`:''}</span>`);
-      chips.push(`<span class="pill">IP/OOP: ${ip?'IP':'OOP'}</span>`);
-      if (s.situation === 'facing-raise') {
-        chips.push(`<span class="pill">Call-kosten: ${bb(callCost)}</span>`);
-        chips.push(`<span class="pill">Pot-odds: ${toPct(potOdds)}</span>`);
-        chips.push(`<span class="pill">Break-even equity (call): ${toPct(beq)}</span>`);
-      } else {
-        chips.push(`<span class="pill">Call-metrics: —</span>`);
-      }
-      chips.push(`<span class="pill">Suggestie 3-bet size: ${bb(threeBetSz)}</span>`);
-      chips.push(`<span class="pill">Break-even fold% (3-bet bluff): ${toPct(feBreakEven)}</span>`);
-
-      mathRowEl.innerHTML = chips.join('');
-    }
-
-    // Init UI, sync en eerste render
-    applyStateToUI();
-    bindInputSync();
-    renderMathFromState();
-
-    // Adviesknop (preflop sectie)
-    document.getElementById('generateAdviceBtn').addEventListener('click', renderAdviceFromState);
-
-    // ================================
-    // Scanner
-    // ================================
-    (function setupScanner(){
-      const video  = document.getElementById('camera');
-      const canvas = document.getElementById('scannerCanvas');
-      const status = document.getElementById('scannerStatus');
-      const out    = document.getElementById('scanResult');
-      const scanAdvice = document.getElementById('scanAdvice');
-
-      const startB = document.getElementById('startBtn');
-      const stopB  = document.getElementById('stopBtn');
-      const calB   = document.getElementById('calibrateBtn');
-      const resB   = document.getElementById('resultBtn');
-      const showAdvB = document.getElementById('scanShowAdviceBtn');
-
-      let stream = null;
-      let calibration = loadCalibration();
-      let lastScan = null;
-
-      async function startCamera() {
-        try {
-          if (video.srcObject && video.srcObject.active) { status.textContent = 'Camera is al actief.'; return; }
-          const constraints = {
-            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-            audio: false
-          };
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          video.srcObject = stream;
-          status.textContent = 'Camera actief en klaar voor gebruik.';
-        } catch (err) {
-          status.textContent = 'Camera niet beschikbaar: ' + (err && err.message ? err.message : err);
-        }
-      }
-      function stopCamera() {
-        if (stream) {
-          stream.getTracks().forEach(t => t.stop());
-          video.srcObject = null;
-          stream = null;
-          status.textContent = 'Camera gestopt.';
-        }
-      }
-      function videoReady() { return video && video.readyState >= 2 && (video.videoWidth||0) > 0; }
-
-      function snapshotMetrics() {
-        const w = video.videoWidth || 1280;
-        const h = video.videoHeight || 720;
-        canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(video, 0, 0, w, h);
-        const { data } = ctx.getImageData(0, 0, w, h);
-        let sum = 0, sumSq = 0, n = data.length / 4;
-        for (let i=0; i<data.length; i+=4) {
-          const y = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
-          sum += y; sumSq += y*y;
-        }
-        const mean = sum / n;
-        const variance = sumSq / n - mean*mean;
-        return { mean, variance };
-      }
-
-      function calibrate() {
-        if (!videoReady()) { status.textContent = 'Start eerst de camera.'; return; }
-        const m = snapshotMetrics();
-        calibration = { mean: m.mean, variance: m.variance, ts: Date.now() };
-        saveCalibration(calibration);
-        status.textContent = `Kalibratie voltooid ✅ (mean=${m.mean.toFixed(1)})`;
-      }
-
-      function showResult() {
-        if (!videoReady()) { status.textContent = 'Start eerst de camera.'; return; }
-        const m = snapshotMetrics();
-        lastScan = m;
-        let compare = '<span class="muted">Geen kalibratie gevonden (tip: eerst Kalibreren).</span>';
-        if (calibration) {
-          const dMean = Math.abs(m.mean - calibration.mean);
-          const dVar  = Math.abs(m.variance - calibration.variance);
-          compare = `Δ helderheid: ${dMean.toFixed(1)}, Δ ruis: ${dVar.toFixed(1)}`;
-        }
-        out.innerHTML = `
-          <div class="card" style="padding:12px">
-            <div style="font-weight:600; margin-bottom:6px;">Scanresultaat</div>
-            <div><strong>Gem. helderheid:</strong> ${m.mean.toFixed(1)}</div>
-            <div><strong>Variantie (ruis):</strong> ${m.variance.toFixed(1)}</div>
-            <div style="margin-top:6px;"><strong>Vergelijking t.o.v. kalibratie:</strong> ${compare}</div>
-          </div>
-        `;
-        status.textContent = 'Scan voltooid ✅';
-      }
-
-      function showLightAdvice() {
-        if (!lastScan) { scanAdvice.textContent = 'Geen scan beschikbaar. Druk eerst op “Scanresultaat”.'; return; }
-        let msg = '';
-        if (lastScan.mean > 150) msg = 'Licht beeld — probeer schaduw of afstand te corrigeren.';
-        else if (lastScan.mean < 80) msg = 'Donker beeld — zorg voor meer licht boven de tafel.';
-        else msg = 'Beeldkwaliteit is goed. Analyseer nu de kaarten.';
-        scanAdvice.textContent = 'Advies: ' + msg;
-        status.textContent = 'Advies getoond 💡';
-      }
-
-      function saveCalibration(c) { try { localStorage.setItem('pokerScannerCalibration', JSON.stringify(c)); } catch {} }
-      function loadCalibration() {
-        try { const raw = localStorage.getItem('pokerScannerCalibration'); return raw ? JSON.parse(raw) : null; }
-        catch { return null; }
-      }
-
-      // Events
-      document.addEventListener('visibilitychange', ()=>{ if(document.hidden) stopCamera(); });
-      startB.addEventListener('click', startCamera);
-      stopB .addEventListener('click', stopCamera);
-      calB  .addEventListener('click', calibrate);
-      resB  .addEventListener('click', showResult);
-
-      // "Toon advies" in scanner gebruikt dezelfde appState
-      document.getElementById('scanShowAdviceBtn').addEventListener('click', () => {
-        const res = renderAdviceFromState();
-        scanAdvice.textContent = `Advies (kort): ${res.action}`;
-        status.textContent = 'Advies (gedeelde state) bijgewerkt.';
-      });
-
-      video.addEventListener('loadeddata', () => { status.textContent = 'Camera actief.'; });
-      startCamera();
-    })();
+    // Optioneel: start camera meteen (comment uit als je dit niet wilt)
+    // startCamera();
+  })();
   </script>
 </body>
 </html>
