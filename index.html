@@ -48,6 +48,10 @@
     #adviceOutput{margin-top:12px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#0f1114}
     .kv{display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap}
     .kv > div{min-width:180px}
+    /* math widget */
+    #mathOutput{margin-top:10px; padding:12px; border:1px solid var(--line); border-radius:10px; background:#0e1013}
+    #mathOutput .row{display:flex; flex-wrap:wrap; gap:14px}
+    #mathOutput .pill{background:#1a2430; border:1px solid #223; border-radius:999px; padding:6px 10px; font-size:.92rem}
   </style>
 </head>
 
@@ -57,7 +61,7 @@
 
     <!-- === PRE-FLOP ADVIES === -->
     <section id="poker-advice" class="card" aria-labelledby="advice-title">
-      <h2 id="advice-title">Advies voor actie</h2>
+      <h2 id="advice-title">Advies & Rekentool</h2>
       <div class="grid grid-cols" style="margin:8px 0 12px">
         <label>Jouw hand (bv. AhKh, 9c9d, AsQs)
           <input id="adv-hand" placeholder="Bv. AhKh" autocomplete="off" />
@@ -106,6 +110,18 @@
 
       <button id="generateAdviceBtn" class="btn">💡 Bereken advies</button>
       <div id="adviceOutput" class="muted">Vul je parameters in en klik op <em>Bereken advies</em>.</div>
+
+      <!-- ▶ Pot-odds & Break-even widget (stap 2) -->
+      <div id="mathOutput" aria-live="polite">
+        <div style="font-weight:600; margin-bottom:6px;">Pot-odds & Break-even</div>
+        <div class="row" id="mathRow">
+          <!-- wordt gevuld door JS -->
+        </div>
+        <div class="muted" style="margin-top:8px; font-size:.9rem">
+          <em>Let op:</em> eenvoudige aannames: call-kosten corrigeren voor SB/BB; 3-bet-suggestie 3× IP / 4× OOP; FE-drempel = <code>risk/(risk+reward)</code>.
+        </div>
+      </div>
+
       <div class="muted" style="margin-top:8px"><em>Tip:</em> ranges zijn GTO-achtig en licht aangepast voor tafelgrootte &amp; tegenstandertype.</div>
     </section>
 
@@ -136,11 +152,9 @@
 
   <script>
     // ================================
-    // STATE LAYER (Stap 1)
+    // STATE LAYER
     // ================================
     const STORAGE_KEY = 'pokerCoachStateV1';
-
-    // --- Default state ---
     const defaultState = {
       handRaw: '',
       pos: 'CO',
@@ -155,18 +169,11 @@
     let appState = loadState();
 
     function loadState() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? { ...defaultState, ...JSON.parse(raw) } : { ...defaultState };
-      } catch {
-        return { ...defaultState };
-      }
+      try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? { ...defaultState, ...JSON.parse(raw) } : { ...defaultState }; }
+      catch { return { ...defaultState }; }
     }
-    function saveState() {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(appState)); } catch {}
-    }
+    function saveState() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(appState)); } catch {} }
 
-    // Koppel UI <-> state (één bron van waarheid)
     const fieldMap = {
       'adv-hand':       'handRaw',
       'adv-heroPos':    'pos',
@@ -181,8 +188,7 @@
 
     function applyStateToUI() {
       for (const [id, key] of Object.entries(fieldMap)) {
-        const el = document.getElementById(id);
-        if (!el) continue;
+        const el = document.getElementById(id); if (!el) continue;
         const v = appState[key];
         if (el.tagName === 'INPUT') el.value = v;
         else if (el.tagName === 'SELECT') el.value = v;
@@ -190,8 +196,7 @@
     }
     function readUIToState() {
       for (const [id, key] of Object.entries(fieldMap)) {
-        const el = document.getElementById(id);
-        if (!el) continue;
+        const el = document.getElementById(id); if (!el) continue;
         let v = el.value;
         if (['players','numLimpers','raiseSize','potSize'].includes(key)) v = Number(v);
         appState[key] = v;
@@ -200,15 +205,14 @@
     }
     function bindInputSync() {
       for (const id of Object.keys(fieldMap)) {
-        const el = document.getElementById(id);
-        if (!el) continue;
+        const el = document.getElementById(id); if (!el) continue;
         const ev = (el.tagName === 'INPUT') ? 'input' : 'change';
-        el.addEventListener(ev, () => { readUIToState(); });
+        el.addEventListener(ev, () => { readUIToState(); renderMathFromState(); });
       }
     }
 
     // ================================
-    // Poker helpers (ongewijzigd t.o.v. vorige versie)
+    // Poker helpers (zoals eerder)
     // ================================
     function canonHand(raw) {
       if (!raw) return null;
@@ -221,7 +225,6 @@
       if (hi === lo) return hi + hi;
       return hi + lo + (suited ? 's' : 'o');
     }
-
     function expandRange(rangeStr) {
       const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
       const idx = r => ranks.indexOf(r);
@@ -308,7 +311,7 @@
       if (pos==='CO' || pos==='BTN') return '2.5bb';
       return '3bb';
     }
-    const threeBetSize = (ip) => (ip ? '3x open' : '4x open');
+    const threeBetSizeText = (ip) => (ip ? '3x open' : '4x open');
 
     function getPokerAdviceFull(params) {
       const {
@@ -357,7 +360,7 @@
         rc = adjustByVillain(rc, villainType);
 
         const ip = (pos==='CO'||pos==='BTN') && !(openerPos==='BTN');
-        if (inRange(hand, r3))  return { action:`3-bet naar ${threeBetSize(ip)}`, reason:`${hand} valt in 3-bet range (${b}) vs open uit ${openerPos}.` };
+        if (inRange(hand, r3))  return { action:`3-bet naar ${threeBetSizeText(ip)}`, reason:`${hand} valt in 3-bet range (${b}) vs open uit ${openerPos}.` };
         if (inRange(hand, rc))  return { action:'Call', reason:`${hand} valt in call range (${b}) vs open uit ${openerPos}.` };
         return { action:'Fold', reason:`${hand} niet winstgevend als call/3-bet (${b}) vs ${openerPos} open.` };
       }
@@ -366,11 +369,24 @@
     }
 
     // ================================
-    // Rendering & events (delen advies UI + scannerbutton)
+    // Rendering & Math widget
     // ================================
     const adviceOutEl = document.getElementById('adviceOutput');
+    const mathRowEl   = document.getElementById('mathRow');
+
+    function postedBlindBB(pos){
+      if (pos==='SB') return 0.5;
+      if (pos==='BB') return 1;
+      return 0;
+    }
+    function isIP(pos, openerPos){
+      // simpele check: IP wanneer we CO/BTN zijn en opener niet BTN is
+      return (pos==='CO' || pos==='BTN') && openerPos!=='BTN';
+    }
+    function toPct(x){ return isFinite(x) ? (100*x).toFixed(1)+'%' : '—'; }
+    function bb(x){ return isFinite(x) ? (x.toFixed(1)+' bb') : '—'; }
+
     function renderAdviceFromState() {
-      // lees UI -> state (als iets is gewijzigd)
       readUIToState();
       const res = getPokerAdviceFull(appState);
       adviceOutEl.innerHTML = `
@@ -379,18 +395,59 @@
           <div><strong>Reden:</strong> ${res.reason}</div>
         </div>
       `;
+      renderMathFromState();
       return res;
     }
 
-    // Init UI vanuit state en live-sync
+    function renderMathFromState(){
+      const s = appState;
+      const pos = s.pos.toUpperCase();
+      const posted = postedBlindBB(pos);
+      const ip = isIP(pos, (s.openerPos||'UTG').toUpperCase());
+
+      // Call metrics (alleen relevant bij facing-raise)
+      let callCost = null, potOdds = null, beq = null;
+      if (s.situation === 'facing-raise') {
+        callCost = Math.max(s.raiseSize - posted, 0);
+        potOdds  = callCost / (s.potSize + callCost);
+        beq      = potOdds; // break-even equity voor een call
+      }
+
+      // 3-bet metrics (heuristisch, IP 3x / OOP 4x)
+      let threeBetSz   = (ip ? 3 : 4) * s.raiseSize;
+      let risk         = Math.max(threeBetSz - posted, 0);
+      let reward       = s.potSize + s.raiseSize; // we winnen pot + villain's open als hij foldt
+      let feBreakEven  = risk / (risk + reward);
+
+      // Render
+      const chips = [];
+      chips.push(`<span class="pill">Pot: ${bb(s.potSize)}</span>`);
+      chips.push(`<span class="pill">Open/Raise: ${bb(s.raiseSize)}</span>`);
+      chips.push(`<span class="pill">Positie: ${pos}${posted?` (posted ${posted}bb)`:''}</span>`);
+      chips.push(`<span class="pill">IP/OOP: ${ip?'IP':'OOP'}</span>`);
+      if (s.situation === 'facing-raise') {
+        chips.push(`<span class="pill">Call-kosten: ${bb(callCost)}</span>`);
+        chips.push(`<span class="pill">Pot-odds: ${toPct(potOdds)}</span>`);
+        chips.push(`<span class="pill">Break-even equity (call): ${toPct(beq)}</span>`);
+      } else {
+        chips.push(`<span class="pill">Call-metrics: —</span>`);
+      }
+      chips.push(`<span class="pill">Suggestie 3-bet size: ${bb(threeBetSz)}</span>`);
+      chips.push(`<span class="pill">Break-even fold% (3-bet bluff): ${toPct(feBreakEven)}</span>`);
+
+      mathRowEl.innerHTML = chips.join('');
+    }
+
+    // Init UI, sync en eerste render
     applyStateToUI();
     bindInputSync();
+    renderMathFromState();
 
     // Adviesknop (preflop sectie)
     document.getElementById('generateAdviceBtn').addEventListener('click', renderAdviceFromState);
 
     // ================================
-    // Scanner (ongewijzigde functies + koppeling "Toon advies")
+    // Scanner
     // ================================
     (function setupScanner(){
       const video  = document.getElementById('camera');
@@ -502,12 +559,11 @@
       calB  .addEventListener('click', calibrate);
       resB  .addEventListener('click', showResult);
 
-      // 🔗 Belangrijk: "Toon advies" in de SCANNER gebruikt dezelfde appState
-      showAdvB.addEventListener('click', () => {
-        const res = renderAdviceFromState(); // schrijft in #adviceOutput
-        // optioneel mini-echo in de scannersectie:
+      // "Toon advies" in scanner gebruikt dezelfde appState
+      document.getElementById('scanShowAdviceBtn').addEventListener('click', () => {
+        const res = renderAdviceFromState();
         scanAdvice.textContent = `Advies (kort): ${res.action}`;
-        status.textContent = 'Advies (op basis van gedeelde state) bijgewerkt.';
+        status.textContent = 'Advies (gedeelde state) bijgewerkt.';
       });
 
       video.addEventListener('loadeddata', () => { status.textContent = 'Camera actief.'; });
