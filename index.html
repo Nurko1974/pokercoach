@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Poker Coach</title>
 
-  <!-- PWA / bestaande assets blijven werken -->
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="theme-color" content="#0b0b0b" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
@@ -43,15 +42,9 @@
       padding:12px 26px; font-size:1.06rem; border-radius:12px; cursor:pointer;
     }
     .btn:hover{background:var(--btn-hi)}
-    .pill{display:inline-block; font-size:.85rem; color:#0b2; background:#0b2a; padding:4px 10px; border-radius:999px}
     .muted{color:var(--muted)}
-    /* Camera canvas wrapper */
-    #cameraWrap{
-      width:100%; max-width:100%; aspect-ratio:16/9; background:#000;
-      border:1px solid #111; border-radius:12px; overflow:hidden;
-    }
+    #cameraWrap{width:100%; max-width:100%; aspect-ratio:16/9; background:#000; border:1px solid #111; border-radius:12px; overflow:hidden}
     #camera{width:100%; height:100%; object-fit:cover; object-position:center; display:block; background:#000}
-    /* Advice output */
     #adviceOutput{margin-top:12px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#0f1114}
     .kv{display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap}
     .kv > div{min-width:180px}
@@ -132,7 +125,7 @@
         <button id="stopBtn"  class="btn">⏹ Stop camera</button>
         <button id="calibrateBtn" class="btn">🎯 Kalibreren</button>
         <button id="resultBtn" class="btn">🃏 Scanresultaat</button>
-        <button id="adviceBtn" class="btn">💡 Toon advies</button>
+        <button id="scanShowAdviceBtn" class="btn">💡 Toon advies</button>
       </div>
 
       <p id="scannerStatus" class="muted" style="margin-top:12px">Gereed…</p>
@@ -143,131 +136,138 @@
 
   <script>
     // ================================
-    // Helper: kaart/hand normalisatie
+    // STATE LAYER (Stap 1)
+    // ================================
+    const STORAGE_KEY = 'pokerCoachStateV1';
+
+    // --- Default state ---
+    const defaultState = {
+      handRaw: '',
+      pos: 'CO',
+      players: 6,
+      villainType: 'normal',
+      situation: 'first-in',
+      numLimpers: 0,
+      openerPos: 'UTG',
+      raiseSize: 2.5,
+      potSize: 3
+    };
+    let appState = loadState();
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? { ...defaultState, ...JSON.parse(raw) } : { ...defaultState };
+      } catch {
+        return { ...defaultState };
+      }
+    }
+    function saveState() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(appState)); } catch {}
+    }
+
+    // Koppel UI <-> state (één bron van waarheid)
+    const fieldMap = {
+      'adv-hand':       'handRaw',
+      'adv-heroPos':    'pos',
+      'adv-players':    'players',
+      'adv-villainType':'villainType',
+      'adv-situation':  'situation',
+      'adv-limpers':    'numLimpers',
+      'adv-openerPos':  'openerPos',
+      'adv-raiseSize':  'raiseSize',
+      'adv-pot':        'potSize'
+    };
+
+    function applyStateToUI() {
+      for (const [id, key] of Object.entries(fieldMap)) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const v = appState[key];
+        if (el.tagName === 'INPUT') el.value = v;
+        else if (el.tagName === 'SELECT') el.value = v;
+      }
+    }
+    function readUIToState() {
+      for (const [id, key] of Object.entries(fieldMap)) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        let v = el.value;
+        if (['players','numLimpers','raiseSize','potSize'].includes(key)) v = Number(v);
+        appState[key] = v;
+      }
+      saveState();
+    }
+    function bindInputSync() {
+      for (const id of Object.keys(fieldMap)) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const ev = (el.tagName === 'INPUT') ? 'input' : 'change';
+        el.addEventListener(ev, () => { readUIToState(); });
+      }
+    }
+
+    // ================================
+    // Poker helpers (ongewijzigd t.o.v. vorige versie)
     // ================================
     function canonHand(raw) {
       if (!raw) return null;
       const s = raw.replace(/[^2-9TJQKAshdc]/gi, '').toUpperCase();
-      // Gebruik korte notatie zoals AhKh -> AKs, 9c9d -> 99
       if (s.length < 4) return null;
       const r1 = s[0], s1 = s[1], r2 = s[2], s2 = s[3];
       const ranksOrder = '23456789TJQKA';
       const suited = s1 === s2;
       const [hi, lo] = (ranksOrder.indexOf(r1) >= ranksOrder.indexOf(r2)) ? [r1, r2] : [r2, r1];
-      if (hi === lo) return hi + hi;        // pairs
-      return hi + lo + (suited ? 's' : 'o'); // e.g. AKs / AQo
+      if (hi === lo) return hi + hi;
+      return hi + lo + (suited ? 's' : 'o');
     }
 
-    // ==============================================
-    // Range parser (robuster, ondersteunt nu ook:)
-    //  - Pairs met +   : 22+, 77+
-    //  - Pair-range    : JJ-77, 99-55
-    //  - Suited/OFF +  : K9s+, AJo+
-    //  - Suited-range  : AQs-AJs, KTs-QTs
-    //  - Axs/Axo       : Axs (A2s t/m AKs), Axo (A2o t/m AKo)
-    //  - Exacte handen : AKs, KQo, T9s, 77
-    // ==============================================
     function expandRange(rangeStr) {
       const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
       const idx = r => ranks.indexOf(r);
       const out = new Set();
       if (!rangeStr) return out;
-
       const tokens = rangeStr.replace(/\s+/g,'').split(',');
       for (let token of tokens) {
         if (!token) continue;
-
-        // ---- Axs / Axo ----
-        if (/^[2-9TJQKA]x[s|o]$/.test(token)) {
-          const hi = token[0]; const suited = token[2]==='s';
-          if (hi === 'A') {
-            for (let j=0; j<ranks.length-1; j++) {
-              const low = ranks[j]; if (low === 'A') continue;
-              out.add('A'+low+(suited?'s':'o'));
-            }
-            continue;
-          }
-        }
-        if (/^Axs$/.test(token)) { // veelgebruikt
-          for (let j=0; j<ranks.length-1; j++) out.add('A'+ranks[j]+'s');
-          continue;
-        }
-        if (/^Axo$/.test(token)) {
-          for (let j=0; j<ranks.length-1; j++) out.add('A'+ranks[j]+'o');
-          continue;
-        }
-
-        // ---- Pairs met +, bijv 77+ ----
-        if (/^([2-9TJQKA])\1\+$/.test(token)) {
-          const start = token[0];
-          for (let i=idx(start); i<ranks.length; i++) out.add(ranks[i]+ranks[i]);
-          continue;
-        }
-
-        // ---- Pair range, bijv JJ-77 of 99-55 ----
+        if (/^Axs$/.test(token)) { for (let j=0;j<ranks.length-1;j++) out.add('A'+ranks[j]+'s'); continue; }
+        if (/^Axo$/.test(token)) { for (let j=0;j<ranks.length-1;j++) out.add('A'+ranks[j]+'o'); continue; }
+        if (/^([2-9TJQKA])\1\+$/.test(token)) { const start=token[0]; for (let i=idx(start); i<ranks.length; i++) out.add(ranks[i]+ranks[i]); continue; }
         if (/^([2-9TJQKA])\1-([2-9TJQKA])\2$/.test(token)) {
-          const [,hi,lo] = token.match(/^([2-9TJQKA])\1-([2-9TJQKA])\2$/);
-          for (let i=idx(lo); i<=idx(hi); i++) out.add(ranks[i]+ranks[i]);
-          continue;
+          const [,hi,lo]=token.match(/^([2-9TJQKA])\1-([2-9TJQKA])\2$/);
+          for (let i=idx(lo); i<=idx(hi); i++) out.add(ranks[i]+ranks[i]); continue;
         }
-
-        // ---- Broadways met + : K9s+ / K9o+ ----
         if (/^([2-9TJQKA])([2-9TJQKA])[so]\+$/.test(token)) {
-          const [,hi,lo,] = token.match(/^([2-9TJQKA])([2-9TJQKA])([so])\+$/);
-          const suited = token.includes('s');
-          const loStart = idx(lo);
-          const hiIdx = idx(hi);
-          for (let j=loStart; j<hiIdx; j++) out.add(hi + ranks[j] + (suited?'s':'o'));
-          continue;
+          const [,hi,lo]=token.match(/^([2-9TJQKA])([2-9TJQKA])[so]\+$/);
+          const suited = token.includes('s'); const loStart=idx(lo); const hiIdx=idx(hi);
+          for (let j=loStart; j<hiIdx; j++) out.add(hi + ranks[j] + (suited?'s':'o')); continue;
         }
-
-        // ---- Suited/offsuit range met streep: AQs-AJs, KTs-QTs ----
         if (/^([2-9TJQKA])([2-9TJQKA])[so]-([2-9TJQKA])([2-9TJQKA])[so]$/.test(token)) {
-          const m = token.match(/^([2-9TJQKA])([2-9TJQKA])([so])-([2-9TJQKA])([2-9TJQKA])([so])$/);
-          const hi1=m[1], lo1=m[2], s1=m[3]==='s';
-          const hi2=m[4], lo2=m[5], s2=m[6]==='s';
-          if (hi1===hi2 && s1===s2) {
-            const a = idx(lo2), b = idx(lo1);
-            for (let j=a; j<=b; j++) out.add(hi1 + ranks[j] + (s1?'s':'o'));
-            continue;
-          }
-        }
-
-        // ---- Exact suited/offsuit ----
-        if (/^[2-9TJQKA][2-9TJQKA][so]$/.test(token)) { out.add(token); continue; }
-
-        // ---- Exact pair ----
-        if (/^([2-9TJQKA])\1$/.test(token)) { out.add(token); continue; }
-
-        // ---- AQo+ / AJo+ (al gedekt door broadways met +) ----
-        if (/^[2-9TJQKA][2-9TJQKA]o\+$/.test(token) || /^[2-9TJQKA][2-9TJQKA]s\+$/.test(token)) {
-          // al afgevangen hierboven; no-op
+          const m=token.match(/^([2-9TJQKA])([2-9TJQKA])([so])-([2-9TJQKA])([2-9TJQKA])([so])$/);
+          const hi1=m[1], lo1=m[2], s1=m[3]==='s'; const hi2=m[4], lo2=m[5], s2=m[6]==='s';
+          if (hi1===hi2 && s1===s2) { const a=idx(lo2), b=idx(lo1); for (let j=a;j<=b;j++) out.add(hi1+ranks[j]+(s1?'s':'o')); }
           continue;
         }
-        // Onbekend token -> negeren
+        if (/^[2-9TJQKA][2-9TJQKA][so]$/.test(token)) { out.add(token); continue; }
+        if (/^([2-9TJQKA])\1$/.test(token)) { out.add(token); continue; }
       }
       return out;
     }
     function inRange(hand, rangeStr) { return hand ? expandRange(rangeStr).has(hand) : false; }
 
-    // ======================
-    // Ranges / heuristieken
-    // ======================
     const OPEN_RANGES = {
       UTG: '77+,A2s+,KTs+,QTs+,JTs,T9s,98s,AQo+,KQo',
       MP:  '66+,A2s+,K9s+,QTs+,JTs,T9s,98s,87s,AQo+,KQo',
       CO:  '55+,A2s+,K8s+,Q9s+,J9s+,T8s+,97s+,AJo+,KQo',
       BTN: '44+,A2s+,K6s+,Q8s+,J8s+,T8s+,98s,87s,76s,A9o+,KTo+,QTo+,JTo',
       SB:  '66+,A2s+,K9s+,Q9s+,J9s+,T9s,98s,AQo+,KQo',
-      BB:  'TT-22,Axs,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo' // als open first-in zeldzaam; BB meestal facing raise
+      BB:  'TT-22,Axs,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo'
     };
-
     const ISO_RANGES = {
       EP: '77+,A2s+,KTs+,QTs+,JTs,T9s,AQo+',
       MP: '66+,A2s+,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo',
       LP: '55+,A2s+,K9s+,Q9s+,J9s+,T8s+,98s,87s,AJo+,KTo+,QTo+,JTo'
     };
-
     const THREEBET_VS_OPEN = {
       EP: 'QQ+,AKs,AKo',
       MP: 'JJ+,AKs,AKo,AQs',
@@ -309,12 +309,11 @@
       return '3bb';
     }
     const threeBetSize = (ip) => (ip ? '3x open' : '4x open');
-    const fourBetSize  = (ip) => (ip ? '2.2x 3bet' : '2.5x 3bet'); // gereserveerd
 
     function getPokerAdviceFull(params) {
       const {
         handRaw, pos, players, villainType, situation,
-        numLimpers=0, openerPos='UTG', raiseSize=2.5
+        numLimpers=0, openerPos='UTG'
       } = params;
 
       const hand = canonHand(handRaw);
@@ -336,7 +335,6 @@
         let r = ISO_RANGES[b==='LP' ? 'LP' : (b==='MP' ? 'MP' : 'EP')];
         r = adjustByPlayers(r, players);
         r = adjustByVillain(r, villainType);
-
         if (inRange(hand, r)) {
           const size = openSize(pos, Number(numLimpers||0), (pos==='SB'||pos==='BB'));
           return { action:`Iso-raise ${size}`, reason:`${hand} is goed als iso tegen ${numLimpers} limper(s) vanuit ${pos}.` };
@@ -367,50 +365,45 @@
       return { action:'—', reason:'Onbekende situatie.' };
     }
 
-    // ======================
-    // UI hookup (advies)
-    // ======================
-    (function setupAdvice(){
-      const adviceBtn = document.getElementById('generateAdviceBtn');
-      const adviceOut = document.getElementById('adviceOutput');
-      adviceBtn.addEventListener('click', () => {
-        const get = (id) => document.getElementById(id).value;
-        const params = {
-          handRaw:   get('adv-hand'),
-          pos:       (get('adv-heroPos')||'CO').toUpperCase(),
-          players:   Number(get('adv-players')||6),
-          villainType: get('adv-villainType')||'normal',
-          situation: get('adv-situation')||'first-in',
-          numLimpers: Number(get('adv-limpers')||0),
-          openerPos: (get('adv-openerPos')||'UTG').toUpperCase(),
-          raiseSize: Number(get('adv-raiseSize')||2.5),
-          potSize:   Number(get('adv-pot')||3)
-        };
-        const res = getPokerAdviceFull(params);
-        adviceOut.innerHTML = `
-          <div class="kv">
-            <div><strong>Actie:</strong> ${res.action}</div>
-            <div><strong>Reden:</strong> ${res.reason}</div>
-          </div>
-        `;
-      });
-    })();
+    // ================================
+    // Rendering & events (delen advies UI + scannerbutton)
+    // ================================
+    const adviceOutEl = document.getElementById('adviceOutput');
+    function renderAdviceFromState() {
+      // lees UI -> state (als iets is gewijzigd)
+      readUIToState();
+      const res = getPokerAdviceFull(appState);
+      adviceOutEl.innerHTML = `
+        <div class="kv">
+          <div><strong>Actie:</strong> ${res.action}</div>
+          <div><strong>Reden:</strong> ${res.reason}</div>
+        </div>
+      `;
+      return res;
+    }
 
-    // ======================
-    // Scanner (camera)
-    // ======================
+    // Init UI vanuit state en live-sync
+    applyStateToUI();
+    bindInputSync();
+
+    // Adviesknop (preflop sectie)
+    document.getElementById('generateAdviceBtn').addEventListener('click', renderAdviceFromState);
+
+    // ================================
+    // Scanner (ongewijzigde functies + koppeling "Toon advies")
+    // ================================
     (function setupScanner(){
       const video  = document.getElementById('camera');
       const canvas = document.getElementById('scannerCanvas');
       const status = document.getElementById('scannerStatus');
       const out    = document.getElementById('scanResult');
-      const advice = document.getElementById('scanAdvice');
+      const scanAdvice = document.getElementById('scanAdvice');
 
       const startB = document.getElementById('startBtn');
       const stopB  = document.getElementById('stopBtn');
       const calB   = document.getElementById('calibrateBtn');
       const resB   = document.getElementById('resultBtn');
-      const advB   = document.getElementById('adviceBtn');
+      const showAdvB = document.getElementById('scanShowAdviceBtn');
 
       let stream = null;
       let calibration = loadCalibration();
@@ -486,13 +479,13 @@
         status.textContent = 'Scan voltooid ✅';
       }
 
-      function showAdvice() {
-        if (!lastScan) { advice.textContent = 'Geen scan beschikbaar. Druk eerst op “Scanresultaat”.'; return; }
+      function showLightAdvice() {
+        if (!lastScan) { scanAdvice.textContent = 'Geen scan beschikbaar. Druk eerst op “Scanresultaat”.'; return; }
         let msg = '';
         if (lastScan.mean > 150) msg = 'Licht beeld — probeer schaduw of afstand te corrigeren.';
         else if (lastScan.mean < 80) msg = 'Donker beeld — zorg voor meer licht boven de tafel.';
         else msg = 'Beeldkwaliteit is goed. Analyseer nu de kaarten.';
-        advice.textContent = 'Advies: ' + msg;
+        scanAdvice.textContent = 'Advies: ' + msg;
         status.textContent = 'Advies getoond 💡';
       }
 
@@ -508,10 +501,16 @@
       stopB .addEventListener('click', stopCamera);
       calB  .addEventListener('click', calibrate);
       resB  .addEventListener('click', showResult);
-      advB  .addEventListener('click', showAdvice);
-      video.addEventListener('loadeddata', () => { status.textContent = 'Camera actief.'; });
 
-      // Auto-start als toegestaan
+      // 🔗 Belangrijk: "Toon advies" in de SCANNER gebruikt dezelfde appState
+      showAdvB.addEventListener('click', () => {
+        const res = renderAdviceFromState(); // schrijft in #adviceOutput
+        // optioneel mini-echo in de scannersectie:
+        scanAdvice.textContent = `Advies (kort): ${res.action}`;
+        status.textContent = 'Advies (op basis van gedeelde state) bijgewerkt.';
+      });
+
+      video.addEventListener('loadeddata', () => { status.textContent = 'Camera actief.'; });
       startCamera();
     })();
   </script>
