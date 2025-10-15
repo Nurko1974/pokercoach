@@ -98,20 +98,32 @@
 <section id="poker-scanner" style="padding:20px; text-align:center;">
   <h2 style="margin-bottom:14px;">Pokerhand Scanner</h2>
 
-  <!-- Camera: breed maar niet te hoog -->
+<!-- VERVANG jouw <video id="camera" ...> door dit blok -->
+<div id="cameraWrap"
+     style="
+       width:100%;
+       max-width:100%;
+       /* kies één van de twee regels hieronder: */
+       aspect-ratio:16/9;           /* optie A: vaste 16:9 */
+       /* height:58vh;              /* optie B: vaste hoogte, ~schermvullend */ 
+       background:#000;
+       border:1px solid #222;
+       border-radius:12px;
+       overflow:hidden;             /* belangrijk: croppen zonder balken */
+       margin:0 auto;
+     ">
   <video id="camera" autoplay playsinline muted
          style="
            width:100%;
-           max-width:100%;
-           aspect-ratio:16/9;
-           height:auto;
-           background:#000;
-           border:1px solid #222;
-           border-radius:12px;
+           height:100%;
+           object-fit:cover;         /* vult het kader, geen balken */
+           object-position:center;   /* centreert beeld */
            display:block;
-           margin:0 auto;
+           background:#000;
          ">
   </video>
+</div>
+
 
   <canvas id="scannerCanvas" style="display:none;"></canvas>
 
