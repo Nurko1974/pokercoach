@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Poker Coach</title>
+  <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0b0b0b">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <script type="module" crossorigin src="/assets/index-DFygKoBP.js"></script>
+</head>
+<body>
+  <h1>Poker Coach</h1>
+
+  <div class="input">
+    <label>Jouw hand:</label>
+    <input id="hand" placeholder="Bijv. AhKh (h = hearts)" />
+  </div>
+
+  <div class="input">
+    <label>Board (optioneel):</label>
+    <input id="board" placeholder="Bijv. QhJh9d" />
+  </div>
+
+  <div class="input">
+    <label>Pot (€):</label>
+    <input id="pot" type="number" value="10" />
+  </div>
+
+  <div class="input">
+    <label>Bet van tegenstander (€):</label>
+    <input id="bet" type="number" value="5" />
+  </div>
+  
+<div class="input">
+  <label>Tegenstander type (range):</label>
+  <select id="villainType">
+    <option value="tight">Tight</option>
+    <option value="average" selected>Average</option>
+    <option value="loose">Loose</option>
+  </select>
+</div>
+
+<div class="input">
+  <label>Aantal tegenstanders:</label>
+  <input id="numOpp" type="number" value="1" min="1" max="6" />
+</div>
+<div class="input">
+  <label>Jouw positie (preflop):</label>
+  <select id="heroPos">
+    <option>UTG</option>
+    <option>HJ</option>
+    <option>CO</option>
+    <option selected>BTN</option>
+    <option>SB</option>
+    <option>BB</option>
+  </select>
+</div>
+<div class="input">
+  <label>Simulatiesnelheid:</label>
+  <select id="simSpeed">
+    <option value="5000">Snel (5k)</option>
+    <option value="20000" selected>Normaal (20k)</option>
+    <option value="50000">Nauwkeurig (50k)</option>
+  </select>
+</div>
+
+<div class="input">
+  <label>Villain positie (preflop):</label>
+  <select id="villainPos">
+    <option>UTG</option>
+    <option>HJ</option>
+    <option>CO</option>
+    <option>BTN</option>
+    <option selected>SB</option>
+    <option>BB</option>
+  </select>
+</div>
+
+<div class="input">
+  <label>Situatie:</label>
+  <select id="spot">
+    <option value="first_in" selected>First-in (open)</option>
+    <option value="vs_open">Vs open raise</option>
+    <option value="vs_3bet">Vs 3-bet</option>
+  </select>
+</div>
+
+<div class="input">
+  <label>Postflop: ik ben in positie (IP)</label>
+  <input id="ipFlag" type="checkbox" checked />
+</div>
+
+<hr>
+<h2>📷 Scanner</h2>
+
+<div id="scanControls">
+  <button id="startCam">Start camera</button>
+  <button id="toggleCal">Kalibreren</button>
+  <button id="scanOnce">Scan & vul</button>
+</div>
+
+<!-- live preview -->
+<video id="cam" autoplay playsinline style="width:100%; max-width:600px; background:#000"></video>
+<canvas id="frame" style="display:none"></canvas>
+
+<p><small>Tip: zet je iPad schuin boven het scherm. Tik <b>Kalibreren</b> en sleep de kaders over: 
+<b>Hero Card 1</b>, <b>Hero Card 2</b>, <b>Board 1–5</b>, <b>Pot</b>, <b>Bet</b>. Sla op, daarna <b>Scan & vul</b>.</small></p>
+
+  <button id="calc">Bereken advies</button>
+
+  <div id="result"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+
+</body>
+</html>
+
+
