@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="nl">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Camera test</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 680px; margin: 2rem auto; padding: 0 12px; }
+  video { width: 100%; background:#000; border-radius:12px; }
+  .log { white-space: pre-wrap; font-size: 14px; background:#f6f6f6; padding:10px; border-radius:8px; margin-top: 10px; }
+  button { padding:10px 14px; border-radius:10px; border:1px solid #ddd; cursor:pointer; }
+</style>
+<h1>Camera test</h1>
+<p>Klik op de knop om de camera te starten. Sta de cameratoegang toe als je browser daarom vraagt.</p>
+<button id="start">Camera inschakelen</button>
+<video id="vid" autoplay playsinline muted></video>
+<div class="log" id="log"></div>
+<script>
+  const log = m => (document.getElementById('log').textContent += m + '\n');
+  async function start() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      log("❌ getUserMedia niet beschikbaar (browser/https?)");
+      return;
+    }
+    try {
+      // Begin simpel. Werkt dit? Dan kun je later 'facingMode: \"environment\"' toevoegen.
+      const constraints = { video: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      document.getElementById('vid').srcObject = stream;
+      log("✅ Camera stream gestart");
+    } catch (e) {
+      log("❌ Fout: " + e.name + " – " + (e.message || ""));
+      // Veelvoorkomende oorzaken:
+      // NotAllowedError -> Toestemming geweigerd (site-permissies)
+      // NotFoundError   -> Geen camera gevonden
+      // NotReadableError-> Camera bezet door andere app
+      // OverconstrainedError -> Constraint te streng (probeer video:true)
+      // SecurityError   -> Niet over HTTPS of iFrame zonder 'allow'
+    }
+  }
+  document.getElementById('start').addEventListener('click', start);
+</script>
+</html>
