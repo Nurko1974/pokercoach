@@ -94,15 +94,16 @@
 
 <hr>
 <h2>📷 Scanner</h2>
-<!-- === Pokerhand Scanner (fullscreen + knoppen) === -->
-<section id="poker-scanner" style="padding:16px; text-align:center;">
-  <h2 style="margin-bottom:12px;">Pokerhand Scanner</h2>
+<!-- === Pokerhand Scanner (breed, lagere hoogte + grote knoppen) === -->
+<section id="poker-scanner" style="padding:20px; text-align:center;">
+  <h2 style="margin-bottom:14px;">Pokerhand Scanner</h2>
 
-  <!-- Volledig brede camera -->
+  <!-- Camera: breed maar niet te hoog -->
   <video id="camera" autoplay playsinline muted
          style="
            width:100%;
            max-width:100%;
+           aspect-ratio:16/9;
            height:auto;
            background:#000;
            border:1px solid #222;
@@ -114,16 +115,19 @@
 
   <canvas id="scannerCanvas" style="display:none;"></canvas>
 
-  <!-- Knoppen -->
-  <div style="margin-top:16px; display:flex; flex-wrap:wrap; gap:10px; justify-content:center;">
-    <button id="startBtn">▶ Start camera</button>
-    <button id="stopBtn">⏹ Stop camera</button>
-    <button id="calibrateBtn">🎯 Kalibreren</button>
-    <button id="resultBtn">🃏 Scanresultaat</button>
+  <!-- Grotere knoppen -->
+  <div style="margin-top:18px; display:flex; flex-wrap:wrap; gap:14px; justify-content:center;">
+    <button id="startBtn" style="padding:12px 26px; font-size:1.1rem;">▶ Start camera</button>
+    <button id="stopBtn" style="padding:12px 26px; font-size:1.1rem;">⏹ Stop camera</button>
+    <button id="calibrateBtn" style="padding:12px 26px; font-size:1.1rem;">🎯 Kalibreren</button>
+    <button id="resultBtn" style="padding:12px 26px; font-size:1.1rem;">🃏 Scanresultaat</button>
+    <button id="adviceBtn" style="padding:12px 26px; font-size:1.1rem;">💡 Toon advies</button>
   </div>
 
-  <p id="scannerStatus" style="margin-top:12px; color:#666;">Gereed…</p>
-  <div id="scanResult" style="margin-top:8px; max-width:800px; text-align:left; margin-inline:auto;"></div>
+  <!-- Status en resultaten -->
+  <p id="scannerStatus" style="margin-top:14px; color:#666; font-size:1rem;">Gereed…</p>
+  <div id="scanResult" style="margin-top:10px; max-width:800px; text-align:left; margin-inline:auto;"></div>
+  <div id="scanAdvice" style="margin-top:14px; font-size:1.1rem; font-style:italic; color:#004085;"></div>
 
   <script>
     (function () {
@@ -131,13 +135,17 @@
       const canvas = document.getElementById('scannerCanvas');
       const status = document.getElementById('scannerStatus');
       const out    = document.getElementById('scanResult');
+      const advice = document.getElementById('scanAdvice');
+
       const startB = document.getElementById('startBtn');
       const stopB  = document.getElementById('stopBtn');
       const calB   = document.getElementById('calibrateBtn');
       const resB   = document.getElementById('resultBtn');
+      const advB   = document.getElementById('adviceBtn');
 
       let stream = null;
       let calibration = loadCalibration();
+      let lastScan = null;
 
       async function startCamera() {
         try {
@@ -183,6 +191,7 @@
           return;
         }
         const m = snapshotMetrics();
+        lastScan = m;
         let compare = 'Geen kalibratie gevonden (tip: eerst Kalibreren).';
         if (calibration) {
           const dMean = Math.abs(m.mean - calibration.mean);
@@ -190,7 +199,7 @@
           compare = `Δ helderheid: ${dMean.toFixed(1)}, Δ ruis: ${dVar.toFixed(1)}`;
         }
         out.innerHTML = `
-          <div style="padding:12px; border:1px solid #e5e5e5; border-radius:10px;">
+          <div style="padding:14px; border:1px solid #e5e5e5; border-radius:10px; background:#fafafa;">
             <div style="font-weight:600; margin-bottom:6px;">Scanresultaat</div>
             <div><strong>Gem. helderheid:</strong> ${m.mean.toFixed(1)}</div>
             <div><strong>Variantie (ruis):</strong> ${m.variance.toFixed(1)}</div>
@@ -200,13 +209,26 @@
         status.textContent = 'Scan voltooid ✅';
       }
 
+      function showAdvice() {
+        if (!lastScan) {
+          advice.textContent = 'Geen scan beschikbaar. Druk eerst op “Scanresultaat”.';
+          return;
+        }
+        let msg = '';
+        if (lastScan.mean > 150) msg = 'Licht beeld — probeer schaduw of afstand te corrigeren.';
+        else if (lastScan.mean < 80) msg = 'Donker beeld — zorg voor meer licht boven de tafel.';
+        else msg = 'Beeldkwaliteit is goed. Analyseer nu de kaarten.';
+        advice.textContent = 'Advies: ' + msg;
+        status.textContent = 'Advies getoond 💡';
+      }
+
       function videoReady() {
         return video && video.readyState >= 2 && (video.videoWidth || 0) > 0;
       }
 
       function snapshotMetrics() {
-        const w = video.videoWidth || 1920;
-        const h = video.videoHeight || 1080;
+        const w = video.videoWidth || 1280;
+        const h = video.videoHeight || 720;
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -233,13 +255,12 @@
       }
 
       startB.addEventListener('click', startCamera);
-      stopB.addEventListener('click', stopCamera);
-      calB.addEventListener('click', calibrate);
-      resB.addEventListener('click', showResult);
+      stopB .addEventListener('click', stopCamera);
+      calB  .addEventListener('click', calibrate);
+      resB  .addEventListener('click', showResult);
+      advB  .addEventListener('click', showAdvice);
 
       video.addEventListener('loadeddata', () => { status.textContent = 'Camera actief.'; });
-
-      // Optioneel automatisch starten
       startCamera();
     })();
   </script>
