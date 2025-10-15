@@ -94,76 +94,158 @@
 
 <hr>
 <h2>📷 Scanner</h2>
-<div style="margin-bottom:8px;">
-  <button id="startCamBtn">Start camera</button>
-  <button id="stopCamBtn" disabled>Stop</button>
-</div>
+  <!-- === Pokerhand Scanner (drop-in vervanger) === -->
+<section id="poker-scanner" style="text-align:center; padding:20px;">
+  <h2 style="margin-bottom:10px;">Pokerhand Scanner</h2>
 
-<video id="scanVideo" autoplay playsinline muted
-       style="width:100%;max-width:900px;background:#000;border-radius:12px;"></video>
+  <!-- Camera preview -->
+  <video id="cameraStream" autoplay playsinline muted
+         width="320" height="240"
+         style="border:1px solid #333; border-radius:8px; background:#000;"></video>
 
-<div id="camLog" style="white-space:pre-wrap;font-size:14px;background:#f6f6f6;
-     padding:10px;border-radius:8px;margin-top:10px;"></div>
+  <!-- (optioneel) canvas voor snapshots/verwerking, blijft verborgen -->
+  <canvas id="scannerCanvas" width="320" height="240" style="display:none;"></canvas>
 
-<canvas id="frame" style="display:none"></canvas>
+  <!-- Actieknoppen -->
+  <div style="margin-top:12px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+    <button id="calibrateBtn">Kalibreren</button>
+    <button id="resultBtn">Scanresultaat</button>
+  </div>
 
-<p><small>Tip: zet je iPad schuin boven het scherm. Tik <b>Kalibreren</b> en sleep de kaders over: 
-<b>Hero Card 1</b>, <b>Hero Card 2</b>, <b>Board 1–5</b>, <b>Pot</b>, <b>Bet</b>. Sla op, daarna <b>Scan & vul</b>.</small></p>
+  <!-- Status + resultaat -->
+  <p id="scannerStatus" style="margin-top:10px; color:#666;">Camera initialiseren…</p>
+  <div id="scanResult"
+       style="margin-top:8px; font-family:system-ui,Arial; font-size:14px; text-align:left; display:inline-block; max-width:320px;"></div>
 
-  <button id="calc">Bereken advies</button>
+  <script>
+    (function () {
+      // Elementen
+      const video   = document.getElementById('cameraStream');
+      const canvas  = document.getElementById('scannerCanvas');
+      const status  = document.getElementById('scannerStatus');
+      const out     = document.getElementById('scanResult');
+      const btnCal  = document.getElementById('calibrateBtn');
+      const btnRes  = document.getElementById('resultBtn');
 
-  <div id="result"></div>
+      // Interne state
+      let stream = null;
+      let calibration = loadCalibration();
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
-<script>
-  const videoEl = document.getElementById('scanVideo');
-  const logEl   = document.getElementById('camLog');
-  const btnStart = document.getElementById('startCamBtn');
-  const btnStop  = document.getElementById('stopCamBtn');
+      // ---- Camera starten (behoudt huidige werking) ----
+      async function startCamera() {
+        // Als er al een stream is, niets forceren (laat huidige werking intact)
+        if (video.srcObject && video.srcObject.active) {
+          stream = video.srcObject;
+          status.textContent = 'Camera actief.';
+          return;
+        }
 
-  let camStream = null;
-  function log(msg){ logEl.textContent += msg + '\n'; }
-
-  async function startCamera() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      log("❌ getUserMedia niet beschikbaar (browser/https?)");
-      return;
-    }
-    btnStart.disabled = true;
-    try {
-      const env = { video: { facingMode: { ideal: "environment" } } };
-      try {
-        camStream = await navigator.mediaDevices.getUserMedia(env);
-      } catch {
-        log("ℹ️ Achtercamera niet gevonden, probeer frontcamera…");
-        camStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        try {
+          // Probeer achtercamera op mobiel, fallback naar default
+          const constraints = {
+            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false
+          };
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          video.srcObject = stream;
+          status.textContent = 'Camera actief en klaar voor gebruik.';
+        } catch (err) {
+          status.textContent = 'Camera niet beschikbaar: ' + err.message;
+        }
       }
-      videoEl.srcObject = camStream;
-      btnStop.disabled = false;
-      log("✅ Camera gestart");
-    } catch (e) {
-      btnStart.disabled = false;
-      log("❌ Fout: " + e.name + " – " + (e.message || ""));
-    }
-  }
 
-  function stopCamera() {
-    if (camStream) {
-      camStream.getTracks().forEach(t => t.stop());
-      camStream = null;
-      videoEl.srcObject = null;
-      log("🛑 Camera gestopt");
-    }
-    btnStart.disabled = false;
-    btnStop.disabled = true;
-  }
+      // ---- Kalibreren ----
+      // Slaat simpele baseline-waarden op (gemiddelde helderheid/contrast) om later bij het scannen te gebruiken.
+      function calibrate() {
+        if (!videoReady()) {
+          status.textContent = 'Wacht tot de camera actief is…';
+          return;
+        }
+        const metrics = snapshotMetrics();
+        calibration = {
+          mean: metrics.mean,
+          variance: metrics.variance,
+          ts: Date.now()
+        };
+        saveCalibration(calibration);
+        status.textContent = 'Kalibratie voltooid ✅ (mean=' + calibration.mean.toFixed(1) + ')';
+      }
 
-  btnStart.addEventListener('click', startCamera);
-  btnStop.addEventListener('click', stopCamera);
-  window.addEventListener('beforeunload', stopCamera);
-</script>
+      // ---- Scanresultaat ----
+      // Neemt een frame en vergelijkt het grofweg met de kalibratie; hier kun je later jouw echte logica aan koppelen.
+      function showResult() {
+        if (!videoReady()) {
+          status.textContent = 'Wacht tot de camera actief is…';
+          return;
+        }
+        const metrics = snapshotMetrics();
 
-</body>
-</html>
+        // Eenvoudige vergelijkingsscore
+        let scoreText = 'Geen kalibratie gevonden. Tip: eerst Kalibreren.';
+        if (calibration) {
+          const delta = Math.abs(metrics.mean - calibration.mean);
+          const noise = Math.abs(metrics.variance - calibration.variance);
+          scoreText = `Δ helderheid: ${delta.toFixed(1)}, Δ ruis: ${noise.toFixed(1)}`;
+        }
 
+        out.innerHTML = `
+          <div style="padding:10px; border:1px solid #e3e3e3; border-radius:8px;">
+            <div style="font-weight:600; margin-bottom:6px;">Scanresultaat</div>
+            <div><strong>Gem. helderheid:</strong> ${metrics.mean.toFixed(1)}</div>
+            <div><strong>Variantie (ruis):</strong> ${metrics.variance.toFixed(1)}</div>
+            <div style="margin-top:6px;"><strong>Vergelijking t.o.v. kalibratie:</strong> ${scoreText}</div>
+          </div>
+        `;
+        status.textContent = 'Scan voltooid ✅';
+      }
+
+      // ---- Helpers ----
+      function videoReady() {
+        return video && video.readyState >= 2 && video.videoWidth > 0;
+      }
+
+      // Neemt snapshot, berekent simpele stats (mean en variance van grijswaarden)
+      function snapshotMetrics() {
+        const w = video.videoWidth || canvas.width;
+        const h = video.videoHeight || canvas.height;
+        if (canvas.width !== w) canvas.width = w;
+        if (canvas.height !== h) canvas.height = h;
+
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(video, 0, 0, w, h);
+        const { data } = ctx.getImageData(0, 0, w, h);
+
+        let sum = 0, sumSq = 0, n = data.length / 4;
+        for (let i = 0; i < data.length; i += 4) {
+          // Luma (BT.709): 0.2126R + 0.7152G + 0.0722B
+          const y = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+          sum += y;
+          sumSq += y * y;
+        }
+        const mean = sum / n;
+        const variance = sumSq / n - mean * mean;
+        return { mean, variance, w, h };
+      }
+
+      function saveCalibration(c) {
+        try { localStorage.setItem('pokerScannerCalibration', JSON.stringify(c)); } catch {}
+      }
+      function loadCalibration() {
+        try {
+          const raw = localStorage.getItem('pokerScannerCalibration');
+          return raw ? JSON.parse(raw) : null;
+        } catch { return null; }
+      }
+
+      // ---- Events ----
+      btnCal.addEventListener('click', calibrate);
+      btnRes.addEventListener('click', showResult);
+      video.addEventListener('loadeddata', () => { status.textContent = 'Camera actief.'; });
+
+      // Start direct
+      startCamera();
+    })();
+  </script>
+</section>
+<!-- === /Pokerhand Scanner === -->
 
