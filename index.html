@@ -1,444 +1,405 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Poker Coach</title>
-  <link rel="stylesheet" href="style.css">
-    <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#0b0b0b">
-  <link rel="apple-touch-icon" href="/icon-192.png">
+
+  <!-- PWA / bestaande assets blijven werken -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0b0b0b" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <link rel="stylesheet" href="style.css" />
   <script type="module" crossorigin src="/assets/index-DFygKoBP.js"></script>
+
+  <style>
+    :root{
+      --card:#0b0b0b; --ink:#eee; --muted:#9aa3ad; --line:#1d1f22; --accent:#2dd4bf;
+      --btn:#17191c; --btn-hi:#1f2327;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
+      background:#0a0a0a; color:var(--ink); line-height:1.45;
+    }
+    h1,h2{margin:12px 0 8px}
+    .container{max-width:1100px; margin:0 auto; padding:20px}
+    .card{
+      background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px;
+      box-shadow:0 0 0 1px rgba(255,255,255,0.02) inset;
+    }
+    .grid{display:grid; gap:10px}
+    @media(min-width:720px){ .grid-cols{grid-template-columns:repeat(3,minmax(220px,1fr))} }
+    label{font-size:.9rem; color:var(--muted); display:flex; flex-direction:column; gap:6px}
+    input,select{
+      background:#121417; border:1px solid var(--line); color:var(--ink);
+      border-radius:10px; padding:10px 12px; outline:none;
+    }
+    input:focus,select:focus{border-color:#334155; box-shadow:0 0 0 3px rgba(51,65,85,.35)}
+    .btnbar{display:flex; flex-wrap:wrap; gap:12px; justify-content:center}
+    .btn{
+      background:var(--btn); border:1px solid var(--line); color:var(--ink);
+      padding:12px 26px; font-size:1.06rem; border-radius:12px; cursor:pointer;
+    }
+    .btn:hover{background:var(--btn-hi)}
+    .pill{display:inline-block; font-size:.85rem; color:#0b2; background:#0b2a; padding:4px 10px; border-radius:999px}
+    .muted{color:var(--muted)}
+    /* Camera canvas wrapper */
+    #cameraWrap{
+      width:100%; max-width:100%; aspect-ratio:16/9; background:#000;
+      border:1px solid #111; border-radius:12px; overflow:hidden;
+    }
+    #camera{width:100%; height:100%; object-fit:cover; object-position:center; display:block; background:#000}
+    /* Advice output */
+    #adviceOutput{margin-top:12px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#0f1114}
+    .kv{display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap}
+    .kv > div{min-width:180px}
+  </style>
 </head>
+
 <body>
-  <h1>Poker Coach</h1>
+  <div class="container">
+    <h1>Poker Coach</h1>
 
-  <div class="input">
-    <label>Jouw hand:</label>
-    <input id="hand" placeholder="Bijv. AhKh (h = hearts)" />
-  </div>
+    <!-- === PRE-FLOP ADVIES === -->
+    <section id="poker-advice" class="card" aria-labelledby="advice-title">
+      <h2 id="advice-title">Advies voor actie</h2>
+      <div class="grid grid-cols" style="margin:8px 0 12px">
+        <label>Jouw hand (bv. AhKh, 9c9d, AsQs)
+          <input id="adv-hand" placeholder="Bv. AhKh" autocomplete="off" />
+        </label>
+        <label>Jouw positie (UTG, MP, CO, BTN, SB, BB)
+          <select id="adv-heroPos">
+            <option>UTG</option><option>MP</option><option selected>CO</option>
+            <option>BTN</option><option>SB</option><option>BB</option>
+          </select>
+        </label>
+        <label>Aantal tegenstanders (aan tafel)
+          <input id="adv-players" type="number" min="2" max="9" value="6" />
+        </label>
+        <label>Tegenstander type
+          <select id="adv-villainType">
+            <option value="normal" selected>Normal</option>
+            <option value="tight">Tight</option>
+            <option value="loose">Loose</option>
+            <option value="aggro">Aggro</option>
+            <option value="passive">Passive</option>
+          </select>
+        </label>
+        <label>Situatie
+          <select id="adv-situation">
+            <option value="first-in" selected>First-in (open)</option>
+            <option value="limpers">Er zijn limpers</option>
+            <option value="facing-raise">Facing raise</option>
+          </select>
+        </label>
+        <label>Aantal limpers (als van toepassing)
+          <input id="adv-limpers" type="number" min="0" value="0" />
+        </label>
+        <label>Opener positie (als facing raise)
+          <select id="adv-openerPos">
+            <option>UTG</option><option>MP</option><option>CO</option>
+            <option>BTN</option><option>SB</option><option>BB</option>
+          </select>
+        </label>
+        <label>Open/raise size in bb (optioneel)
+          <input id="adv-raiseSize" type="number" step="0.5" value="2.5" />
+        </label>
+        <label>Pot (bb, optioneel)
+          <input id="adv-pot" type="number" step="0.5" value="3" />
+        </label>
+      </div>
 
-  <div class="input">
-    <label>Board (optioneel):</label>
-    <input id="board" placeholder="Bijv. QhJh9d" />
-  </div>
+      <button id="generateAdviceBtn" class="btn">💡 Bereken advies</button>
+      <div id="adviceOutput" class="muted">Vul je parameters in en klik op <em>Bereken advies</em>.</div>
+      <div class="muted" style="margin-top:8px"><em>Tip:</em> ranges zijn GTO-achtig en licht aangepast voor tafelgrootte &amp; tegenstandertype.</div>
+    </section>
 
-  <div class="input">
-    <label>Pot (€):</label>
-    <input id="pot" type="number" value="10" />
-  </div>
+    <hr style="border:none; border-top:1px solid var(--line); margin:18px 0" />
 
-  <div class="input">
-    <label>Bet van tegenstander (€):</label>
-    <input id="bet" type="number" value="5" />
-  </div>
-  
-<div class="input">
-  <label>Tegenstander type (range):</label>
-  <select id="villainType">
-    <option value="tight">Tight</option>
-    <option value="average" selected>Average</option>
-    <option value="loose">Loose</option>
-  </select>
-</div>
+    <!-- === SCANNER === -->
+    <section id="poker-scanner" class="card" aria-labelledby="scanner-title">
+      <h2 id="scanner-title">📷 Pokerhand Scanner</h2>
 
-<div class="input">
-  <label>Aantal tegenstanders:</label>
-  <input id="numOpp" type="number" value="1" min="1" max="6" />
-</div>
-<div class="input">
-  <label>Jouw positie (preflop):</label>
-  <select id="heroPos">
-    <option>UTG</option>
-    <option>HJ</option>
-    <option>CO</option>
-    <option selected>BTN</option>
-    <option>SB</option>
-    <option>BB</option>
-  </select>
-</div>
-<div class="input">
-  <label>Simulatiesnelheid:</label>
-  <select id="simSpeed">
-    <option value="5000">Snel (5k)</option>
-    <option value="20000" selected>Normaal (20k)</option>
-    <option value="50000">Nauwkeurig (50k)</option>
-  </select>
-</div>
+      <div id="cameraWrap" aria-label="camera">
+        <video id="camera" autoplay playsinline muted></video>
+      </div>
+      <canvas id="scannerCanvas" style="display:none"></canvas>
 
-<div class="input">
-  <label>Villain positie (preflop):</label>
-  <select id="villainPos">
-    <option>UTG</option>
-    <option>HJ</option>
-    <option>CO</option>
-    <option>BTN</option>
-    <option selected>SB</option>
-    <option>BB</option>
-  </select>
-</div>
+      <div class="btnbar" style="margin-top:16px">
+        <button id="startBtn" class="btn">▶ Start camera</button>
+        <button id="stopBtn"  class="btn">⏹ Stop camera</button>
+        <button id="calibrateBtn" class="btn">🎯 Kalibreren</button>
+        <button id="resultBtn" class="btn">🃏 Scanresultaat</button>
+        <button id="adviceBtn" class="btn">💡 Toon advies</button>
+      </div>
 
-<div class="input">
-  <label>Situatie:</label>
-  <select id="spot">
-    <option value="first_in" selected>First-in (open)</option>
-    <option value="vs_open">Vs open raise</option>
-    <option value="vs_3bet">Vs 3-bet</option>
-  </select>
-</div>
-
-<div class="input">
-  <label>Postflop: ik ben in positie (IP)</label>
-  <input id="ipFlag" type="checkbox" checked />
-</div>
-<!-- === Poker Adviesblok (Preflop Range Engine) === -->
-<section id="poker-advice" style="padding:20px; text-align:left; max-width:900px; margin:0 auto;">
-  <h2>Advies voor actie</h2>
-
-  <!-- Optionele extra velden als je ze nog niet had -->
-  <div style="display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin:8px 0 12px;">
-    <label>Jouw hand (bv. AhKh, 9c9d, AsQs)
-      <input id="playerHand" placeholder="Bv. AhKh" style="width:100%;">
-    </label>
-    <label>Jouw positie (UTG, MP, CO, BTN, SB, BB)
-      <select id="position">
-        <option>UTG</option><option>MP</option><option selected>CO</option>
-        <option>BTN</option><option>SB</option><option>BB</option>
-      </select>
-    </label>
-    <label>Aantal tegenstanders (aan tafel)
-      <input id="opponents" type="number" min="2" max="9" value="6" style="width:100%;">
-    </label>
-    <label>Tegenstander type
-      <select id="villainType">
-        <option value="normal" selected>Normal</option>
-        <option value="tight">Tight</option>
-        <option value="loose">Loose</option>
-        <option value="aggro">Aggro</option>
-        <option value="passive">Passive</option>
-      </select>
-    </label>
-    <label>Situatie
-      <select id="situation">
-        <option value="first-in" selected>First-in (open)</option>
-        <option value="limpers">Er zijn limpers</option>
-        <option value="facing-raise">Facing raise</option>
-      </select>
-    </label>
-    <label>Aantal limpers (als van toepassing)
-      <input id="numCallers" type="number" min="0" value="0" style="width:100%;">
-    </label>
-    <label>Opener positie (als facing raise)
-      <select id="openerPosition">
-        <option>UTG</option><option>MP</option><option>CO</option>
-        <option>BTN</option><option>SB</option><option>BB</option>
-      </select>
-    </label>
-    <label>Open/raise size in bb (optioneel)
-      <input id="raiseSize" type="number" step="0.5" value="2.5">
-    </label>
-    <label>Pot (bb, optioneel)
-      <input id="potSize" type="number" step="0.5" value="3">
-    </label>
-  </div>
-
-  <button id="generateAdviceBtn" style="padding:12px 24px; font-size:1.05rem;">💡 Bereken advies</button>
-
-  <div id="adviceOutput" style="margin-top:12px; padding:14px; border:1px solid #ddd; border-radius:8px; background:#fafafa;">
-    Vul je parameters in en klik op <em>Bereken advies</em>.
+      <p id="scannerStatus" class="muted" style="margin-top:12px">Gereed…</p>
+      <div id="scanResult" style="margin-top:10px; max-width:800px; margin-inline:auto"></div>
+      <div id="scanAdvice" style="margin-top:12px; font-size:1.06rem; font-style:italic; color:#7dd3fc"></div>
+    </section>
   </div>
 
   <script>
-  // ---------- Helpers: hand parsing ----------
-  function canonHand(raw) {
-    if (!raw) return null;
-    const s = raw.replace(/[^2-9TJQKAshdc]/gi,'').toUpperCase();
-    if (s.length < 4) return null;
-    const r1 = s[0], s1 = s[1], r2 = s[2], s2 = s[3];
-    const ranksOrder = '23456789TJQKA';
-    // sort by rank strength, keep suitedness
-    const suited = s1 === s2;
-    const [hi, lo] = (ranksOrder.indexOf(r1) >= ranksOrder.indexOf(r2)) ? [r1,r2] : [r2,r1];
-    if (hi === lo) return hi+hi; // pair AA,TT,...
-    return hi+lo+(suited?'s':'o'); // AKs, AQo,...
-  }
+    // ================================
+    // Helper: kaart/hand normalisatie
+    // ================================
+    function canonHand(raw) {
+      if (!raw) return null;
+      const s = raw.replace(/[^2-9TJQKAshdc]/gi, '').toUpperCase();
+      // Gebruik korte notatie zoals AhKh -> AKs, 9c9d -> 99
+      if (s.length < 4) return null;
+      const r1 = s[0], s1 = s[1], r2 = s[2], s2 = s[3];
+      const ranksOrder = '23456789TJQKA';
+      const suited = s1 === s2;
+      const [hi, lo] = (ranksOrder.indexOf(r1) >= ranksOrder.indexOf(r2)) ? [r1, r2] : [r2, r1];
+      if (hi === lo) return hi + hi;        // pairs
+      return hi + lo + (suited ? 's' : 'o'); // e.g. AKs / AQo
+    }
 
-  // Expand shorthand like "22+", "A2s+", "K9s+", "AJo+", "T9s", "KQo"
-  function expandRange(rangeStr) {
-    const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
-    const pairIdx = r => ranks.indexOf(r);
-    const out = new Set();
-    for (const token of rangeStr.replace(/\s/g,'').split(',')) {
-      if (!token) continue;
-      // Pairs with +
-      if (/^[2-9TJQKA]{2}\+$/.test(token) && token[0]===token[1]) {
-        const start = pairIdx(token[0]);
-        for (let i=start;i<ranks.length;i++) out.add(ranks[i]+ranks[i]);
-        continue;
+    // ==============================================
+    // Range parser (robuster, ondersteunt nu ook:)
+    //  - Pairs met +   : 22+, 77+
+    //  - Pair-range    : JJ-77, 99-55
+    //  - Suited/OFF +  : K9s+, AJo+
+    //  - Suited-range  : AQs-AJs, KTs-QTs
+    //  - Axs/Axo       : Axs (A2s t/m AKs), Axo (A2o t/m AKo)
+    //  - Exacte handen : AKs, KQo, T9s, 77
+    // ==============================================
+    function expandRange(rangeStr) {
+      const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
+      const idx = r => ranks.indexOf(r);
+      const out = new Set();
+      if (!rangeStr) return out;
+
+      const tokens = rangeStr.replace(/\s+/g,'').split(',');
+      for (let token of tokens) {
+        if (!token) continue;
+
+        // ---- Axs / Axo ----
+        if (/^[2-9TJQKA]x[s|o]$/.test(token)) {
+          const hi = token[0]; const suited = token[2]==='s';
+          if (hi === 'A') {
+            for (let j=0; j<ranks.length-1; j++) {
+              const low = ranks[j]; if (low === 'A') continue;
+              out.add('A'+low+(suited?'s':'o'));
+            }
+            continue;
+          }
+        }
+        if (/^Axs$/.test(token)) { // veelgebruikt
+          for (let j=0; j<ranks.length-1; j++) out.add('A'+ranks[j]+'s');
+          continue;
+        }
+        if (/^Axo$/.test(token)) {
+          for (let j=0; j<ranks.length-1; j++) out.add('A'+ranks[j]+'o');
+          continue;
+        }
+
+        // ---- Pairs met +, bijv 77+ ----
+        if (/^([2-9TJQKA])\1\+$/.test(token)) {
+          const start = token[0];
+          for (let i=idx(start); i<ranks.length; i++) out.add(ranks[i]+ranks[i]);
+          continue;
+        }
+
+        // ---- Pair range, bijv JJ-77 of 99-55 ----
+        if (/^([2-9TJQKA])\1-([2-9TJQKA])\2$/.test(token)) {
+          const [,hi,lo] = token.match(/^([2-9TJQKA])\1-([2-9TJQKA])\2$/);
+          for (let i=idx(lo); i<=idx(hi); i++) out.add(ranks[i]+ranks[i]);
+          continue;
+        }
+
+        // ---- Broadways met + : K9s+ / K9o+ ----
+        if (/^([2-9TJQKA])([2-9TJQKA])[so]\+$/.test(token)) {
+          const [,hi,lo,] = token.match(/^([2-9TJQKA])([2-9TJQKA])([so])\+$/);
+          const suited = token.includes('s');
+          const loStart = idx(lo);
+          const hiIdx = idx(hi);
+          for (let j=loStart; j<hiIdx; j++) out.add(hi + ranks[j] + (suited?'s':'o'));
+          continue;
+        }
+
+        // ---- Suited/offsuit range met streep: AQs-AJs, KTs-QTs ----
+        if (/^([2-9TJQKA])([2-9TJQKA])[so]-([2-9TJQKA])([2-9TJQKA])[so]$/.test(token)) {
+          const m = token.match(/^([2-9TJQKA])([2-9TJQKA])([so])-([2-9TJQKA])([2-9TJQKA])([so])$/);
+          const hi1=m[1], lo1=m[2], s1=m[3]==='s';
+          const hi2=m[4], lo2=m[5], s2=m[6]==='s';
+          if (hi1===hi2 && s1===s2) {
+            const a = idx(lo2), b = idx(lo1);
+            for (let j=a; j<=b; j++) out.add(hi1 + ranks[j] + (s1?'s':'o'));
+            continue;
+          }
+        }
+
+        // ---- Exact suited/offsuit ----
+        if (/^[2-9TJQKA][2-9TJQKA][so]$/.test(token)) { out.add(token); continue; }
+
+        // ---- Exact pair ----
+        if (/^([2-9TJQKA])\1$/.test(token)) { out.add(token); continue; }
+
+        // ---- AQo+ / AJo+ (al gedekt door broadways met +) ----
+        if (/^[2-9TJQKA][2-9TJQKA]o\+$/.test(token) || /^[2-9TJQKA][2-9TJQKA]s\+$/.test(token)) {
+          // al afgevangen hierboven; no-op
+          continue;
+        }
+        // Onbekend token -> negeren
       }
-      // Broadways Axs+, Axo+
-      if (/^[2-9TJQKA][2-9TJQKA][so]\+$/.test(token)) {
-        const hi = token[0], loStart = token[1], suited = token[2]==='s';
-        const hiIdx = pairIdx(hi), loIdxStart = pairIdx(loStart);
-        for (let j=loIdxStart;j<hiIdx;j++) out.add(hi+ranks[j]+(suited?'s':'o'));
-        continue;
-      }
-      // K9s+ (kicker or higher)
-      if (/^[2-9TJQKA][2-9TJQKA]s\+$/.test(token)) {
-        const hi = token[0], loStart = token[1];
-        const loIdxStart = pairIdx(loStart);
-        for (let j=loIdxStart;j<ranks.length-1;j++) out.add(hi+ranks[j]+'s');
-        continue;
-      }
-      if (/^[2-9TJQKA][2-9TJQKA]o\+$/.test(token)) {
-        const hi = token[0], loStart = token[1];
-        const loIdxStart = pairIdx(loStart);
-        for (let j=loIdxStart;j<ranks.length-1;j++) out.add(hi+ranks[j]+'o');
-        continue;
-      }
-      // Single exact hand (AKs/AKo/KQo/T9s)
-      if (/^[2-9TJQKA][2-9TJQKA][so]$/.test(token)) { out.add(token); continue; }
-      if (/^[2-9TJQKA]{2}$/.test(token) && token[0]===token[1]) { out.add(token); continue; }
-      // Suited connectors like T9s, 98s, 87s (already handled by exact)
-      // Fallback ignore
+      return out;
     }
-    return out;
-  }
-  function inRange(hand, rangeStr) {
-    if (!hand) return false;
-    return expandRange(rangeStr).has(hand);
-  }
+    function inRange(hand, rangeStr) { return hand ? expandRange(rangeStr).has(hand) : false; }
 
-  // ---------- Ranges (compact, GTO-achtig) ----------
-  const OPEN_RANGES = {
-    UTG: '77+,A2s+,KTs+,QTs+,JTs,T9s,98s,AQo+,KQo',
-    MP:  '66+,A2s+,K9s+,QTs+,JTs,T9s,98s,87s,AQo+,KQo',
-    CO:  '55+,A2s+,K8s+,Q9s+,J9s+,T8s+,97s+,AJo+,KQo',
-    BTN: '44+,A2s+,K6s+,Q8s+,J8s+,T8s+,98s,87s,76s,A9o+,KTo+,QTo+,JTo',
-    SB:  '66+,A2s+,K9s+,Q9s+,J9s+,T9s,98s,AQo+,KQo',
-    BB:  'Any reasonable defend vs steals (use facing-raise logic)'
-  };
+    // ======================
+    // Ranges / heuristieken
+    // ======================
+    const OPEN_RANGES = {
+      UTG: '77+,A2s+,KTs+,QTs+,JTs,T9s,98s,AQo+,KQo',
+      MP:  '66+,A2s+,K9s+,QTs+,JTs,T9s,98s,87s,AQo+,KQo',
+      CO:  '55+,A2s+,K8s+,Q9s+,J9s+,T8s+,97s+,AJo+,KQo',
+      BTN: '44+,A2s+,K6s+,Q8s+,J8s+,T8s+,98s,87s,76s,A9o+,KTo+,QTo+,JTo',
+      SB:  '66+,A2s+,K9s+,Q9s+,J9s+,T9s,98s,AQo+,KQo',
+      BB:  'TT-22,Axs,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo' // als open first-in zeldzaam; BB meestal facing raise
+    };
 
-  const ISO_RANGES = {
-    EP: '77+,A2s+,KTs+,QTs+,JTs,T9s,AQo+',
-    MP: '66+,A2s+,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo',
-    LP: '55+,A2s+,K9s+,Q9s+,J9s+,T8s+,98s,87s,AJo+,KTo+,QTo+,JTo'
-  };
+    const ISO_RANGES = {
+      EP: '77+,A2s+,KTs+,QTs+,JTs,T9s,AQo+',
+      MP: '66+,A2s+,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo',
+      LP: '55+,A2s+,K9s+,Q9s+,J9s+,T8s+,98s,87s,AJo+,KTo+,QTo+,JTo'
+    };
 
-  // vs open: simple 3bet/call maps by hero position bucket (EP/MP/LP/Blinds)
-  const THREEBET_VS_OPEN = {
-    EP: 'QQ+,AKs,AKo',                     // hero EP vs any open
-    MP: 'JJ+,AKs,AKo,AQs',
-    LP: 'TT+,AKs,AKo,AQs,AQo,KQs',
-    SB: 'JJ+,AKs,AKo,AQs',
-    BB: 'JJ+,AKs,AKo,AQs'
-  };
-  const CALL_VS_OPEN = {
-    EP: 'JJ-77,AQs-AJs,KQs',               // tight calls
-    MP: 'TT-66,AQs-AJs,ATs,KQs,QJs,JTs,T9s,98s',
-    LP: '99-55,AQs-ATs,AJo,KQs,KJs,QJs,JTs,T9s,98s,87s,76s',
-    SB: 'TT-66,AQs-ATs,KQs,QJs,JTs,T9s,98s',
-    BB: 'Wide defend: 99-22,Axs,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo'
-  };
+    const THREEBET_VS_OPEN = {
+      EP: 'QQ+,AKs,AKo',
+      MP: 'JJ+,AKs,AKo,AQs',
+      LP: 'TT+,AKs,AKo,AQs,AQo,KQs',
+      SB: 'JJ+,AKs,AKo,AQs',
+      BB: 'JJ+,AKs,AKo,AQs'
+    };
+    const CALL_VS_OPEN = {
+      EP: 'JJ-77,AQs-AJs,KQs',
+      MP: 'TT-66,AQs-AJs,ATs,KQs,QJs,JTs,T9s,98s',
+      LP: '99-55,AQs-ATs,AJo,KQs,KJs,QJs,JTs,T9s,98s,87s,76s',
+      SB: 'TT-66,AQs-ATs,KQs,QJs,JTs,T9s,98s',
+      BB: '99-22,Axs,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo'
+    };
 
-  function bucket(pos) {
-    if (pos==='UTG') return 'EP';
-    if (pos==='MP')  return 'MP';
-    if (pos==='CO' || pos==='BTN') return 'LP';
-    if (pos==='SB') return 'SB';
-    return 'BB';
-  }
-
-  // Op tafelgrootte aanpassen: meer spelers => iets tighter; short-handed => losser
-  function adjustByPlayers(rangeStr, players) {
-    if (!rangeStr) return rangeStr;
-    if (players <= 5) {
-      // Maak iets losser: voeg wat combos toe
-      return rangeStr + ',K9s,Q9s,J9s,T8s,97s,KJo,QJo,JTo';
+    function bucket(pos) {
+      if (pos==='UTG') return 'EP';
+      if (pos==='MP')  return 'MP';
+      if (pos==='CO' || pos==='BTN') return 'LP';
+      if (pos==='SB') return 'SB';
+      return 'BB';
     }
-    if (players >= 8) {
-      // Maak iets tighter: haal marginale offsuit broadways weg
-      return rangeStr.replace(/,KTo\+?|,QTo\+?|,JTo/g,'');
+    function adjustByPlayers(rangeStr, players) {
+      if (!rangeStr) return rangeStr;
+      if (players <= 5) return rangeStr + ',K9s,Q9s,J9s,T8s,97s,KJo,QJo,JTo';
+      if (players >= 8) return rangeStr.replace(/,KTo\+?|,QTo\+?|,JTo/g,'');
+      return rangeStr;
     }
-    return rangeStr;
-  }
-
-  // Villain-type aanpassing (heel simpel)
-  function adjustByVillain(rangeStr, type) {
-    if (!rangeStr) return rangeStr;
-    if ((type||'').toLowerCase()==='loose') {
-      return rangeStr + ',A8o,KTo'; // iets ruimer
+    function adjustByVillain(rangeStr, type) {
+      if (!rangeStr) return rangeStr;
+      const t = (type||'').toLowerCase();
+      if (t==='loose' || t==='aggro') return rangeStr + ',A8o,KTo';
+      if (t==='tight' || t==='passive') return rangeStr.replace(/,AJo\+?/,'');
+      return rangeStr;
     }
-    if ((type||'').toLowerCase()==='tight') {
-      return rangeStr.replace(/,AJo\+?/,''); // iets tighter
+    function openSize(pos, limpers=0, oop=false) {
+      if (limpers>0) { const base=3; return (base + limpers + (oop?1:0)).toFixed(1)+'bb'; }
+      if (pos==='CO' || pos==='BTN') return '2.5bb';
+      return '3bb';
     }
-    return rangeStr;
-  }
+    const threeBetSize = (ip) => (ip ? '3x open' : '4x open');
+    const fourBetSize  = (ip) => (ip ? '2.2x 3bet' : '2.5x 3bet'); // gereserveerd
 
-  // Sizing regels
-  function openSize(pos, limpers=0, oop=false) {
-    if (limpers>0) {
-      const base = 3; // 3bb iso
-      return (base + limpers + (oop?1:0)).toFixed(1) + 'bb';
-    }
-    if (pos==='CO' || pos==='BTN') return '2.5bb';
-    return '3bb';
-  }
-  function threeBetSize(ip)  { return (ip ? '3x open' : '4x open'); }
-  function fourBetSize(ip)   { return (ip ? '2.2x 3bet' : '2.5x 3bet'); }
+    function getPokerAdviceFull(params) {
+      const {
+        handRaw, pos, players, villainType, situation,
+        numLimpers=0, openerPos='UTG', raiseSize=2.5
+      } = params;
 
-  // Hoofdfunctie: bepaalt advies
-  function getPokerAdviceFull(params) {
-    const {
-      handRaw, pos, players, villainType, situation,
-      numLimpers=0, openerPos='UTG', raiseSize=2.5
-    } = params;
+      const hand = canonHand(handRaw);
+      if (!hand) return { action:'—', reason:'Ongeldige of lege hand. Gebruik bijv. AhKh of 9c9d.' };
 
-    const hand = canonHand(handRaw);
-    if (!hand) return { action:'—', reason:'Ongeldige of lege hand. Gebruik bijv. AhKh of 9c9d.' };
-
-    // FIRST-IN / OPEN
-    if (situation==='first-in') {
-      let r = OPEN_RANGES[pos] || OPEN_RANGES.UTG;
-      r = adjustByPlayers(r, players);
-      r = adjustByVillain(r, villainType);
-
-      if (inRange(hand, r)) {
-        const size = openSize(pos, 0, (pos==='SB' || pos==='BB'));
-        return { action:`Open-raise ${size}`, reason:`${hand} valt in de ${pos}-open range.` };
-      } else {
+      if (situation==='first-in') {
+        let r = OPEN_RANGES[pos] || OPEN_RANGES.UTG;
+        r = adjustByPlayers(r, players);
+        r = adjustByVillain(r, villainType);
+        if (inRange(hand, r)) {
+          const size = openSize(pos, 0, (pos==='SB'||pos==='BB'));
+          return { action:`Open-raise ${size}`, reason:`${hand} valt in de ${pos}-open range.` };
+        }
         return { action:'Fold', reason:`${hand} zit niet in de ${pos}-open range bij ${players}-handed.` };
       }
-    }
 
-    // ISOLEREN TEGEN LIMPER(S)
-    if (situation==='limpers') {
-      const bucketPos = bucket(pos);
-      let r = ISO_RANGES[bucketPos==='LP'?'LP':(bucketPos==='MP'?'MP':'EP')];
-      r = adjustByPlayers(r, players);
-      r = adjustByVillain(r, villainType);
+      if (situation==='limpers') {
+        const b = bucket(pos);
+        let r = ISO_RANGES[b==='LP' ? 'LP' : (b==='MP' ? 'MP' : 'EP')];
+        r = adjustByPlayers(r, players);
+        r = adjustByVillain(r, villainType);
 
-      if (inRange(hand, r)) {
-        const size = openSize(pos, Number(numLimpers||0), (pos==='SB'||pos==='BB'));
-        return { action:`Iso-raise ${size}`, reason:`${hand} is goed als iso tegen ${numLimpers} limper(s) vanuit ${pos}.` };
-      } else {
-        // speculatieve suited connectors in positie nog net toestaan
+        if (inRange(hand, r)) {
+          const size = openSize(pos, Number(numLimpers||0), (pos==='SB'||pos==='BB'));
+          return { action:`Iso-raise ${size}`, reason:`${hand} is goed als iso tegen ${numLimpers} limper(s) vanuit ${pos}.` };
+        }
         const sc = '54s,65s,76s,87s,98s,T9s,JTs';
         if ((pos==='CO'||pos==='BTN') && inRange(hand, sc) && numLimpers>=2) {
           return { action:`Iso-raise ${openSize(pos, numLimpers)} of Call`, reason:`Speculatieve hand + meerdere limpers in positie.` };
         }
         return { action:'Check/Overlimp of Fold', reason:`Te marginaal om te isoleren vanuit ${pos}.` };
       }
+
+      if (situation==='facing-raise') {
+        const b = bucket(pos);
+        let r3 = THREEBET_VS_OPEN[b] || THREEBET_VS_OPEN.MP;
+        let rc = CALL_VS_OPEN[b]      || CALL_VS_OPEN.MP;
+
+        r3 = adjustByPlayers(r3, players);
+        rc = adjustByPlayers(rc, players);
+        r3 = adjustByVillain(r3, villainType);
+        rc = adjustByVillain(rc, villainType);
+
+        const ip = (pos==='CO'||pos==='BTN') && !(openerPos==='BTN');
+        if (inRange(hand, r3))  return { action:`3-bet naar ${threeBetSize(ip)}`, reason:`${hand} valt in 3-bet range (${b}) vs open uit ${openerPos}.` };
+        if (inRange(hand, rc))  return { action:'Call', reason:`${hand} valt in call range (${b}) vs open uit ${openerPos}.` };
+        return { action:'Fold', reason:`${hand} niet winstgevend als call/3-bet (${b}) vs ${openerPos} open.` };
+      }
+
+      return { action:'—', reason:'Onbekende situatie.' };
     }
 
-    // FACING RAISE
-    if (situation==='facing-raise') {
-      const heroB = bucket(pos);
-      let r3 = THREEBET_VS_OPEN[heroB] || THREEBET_VS_OPEN.MP;
-      let rc = CALL_VS_OPEN[heroB]      || CALL_VS_OPEN.MP;
+    // ======================
+    // UI hookup (advies)
+    // ======================
+    (function setupAdvice(){
+      const adviceBtn = document.getElementById('generateAdviceBtn');
+      const adviceOut = document.getElementById('adviceOutput');
+      adviceBtn.addEventListener('click', () => {
+        const get = (id) => document.getElementById(id).value;
+        const params = {
+          handRaw:   get('adv-hand'),
+          pos:       (get('adv-heroPos')||'CO').toUpperCase(),
+          players:   Number(get('adv-players')||6),
+          villainType: get('adv-villainType')||'normal',
+          situation: get('adv-situation')||'first-in',
+          numLimpers: Number(get('adv-limpers')||0),
+          openerPos: (get('adv-openerPos')||'UTG').toUpperCase(),
+          raiseSize: Number(get('adv-raiseSize')||2.5),
+          potSize:   Number(get('adv-pot')||3)
+        };
+        const res = getPokerAdviceFull(params);
+        adviceOut.innerHTML = `
+          <div class="kv">
+            <div><strong>Actie:</strong> ${res.action}</div>
+            <div><strong>Reden:</strong> ${res.reason}</div>
+          </div>
+        `;
+      });
+    })();
 
-      r3 = adjustByPlayers(r3, players);
-      rc = adjustByPlayers(rc, players);
-      r3 = adjustByVillain(r3, villainType);
-      rc = adjustByVillain(rc, villainType);
-
-      const ip = (pos==='CO'||pos==='BTN') && !(openerPos==='BTN'); // simpele IP check
-      if (inRange(hand, r3)) {
-        return { action:`3-bet naar ${threeBetSize(ip)}`, reason:`${hand} valt in 3-bet range (${heroB}) vs open uit ${openerPos}.` };
-      }
-      if (inRange(hand, rc)) {
-        return { action:'Call', reason:`${hand} valt in call range (${heroB}) vs open uit ${openerPos}.` };
-      }
-      return { action:'Fold', reason:`${hand} niet winstgevend als call/3-bet (${heroB}) vs ${openerPos} open.` };
-    }
-
-    return { action:'—', reason:'Onbekende situatie.' };
-  }
-
-  // ------------ UI hookup ------------
-  const adviceBtn = document.getElementById('generateAdviceBtn');
-  const adviceOut = document.getElementById('adviceOutput');
-
-  adviceBtn.addEventListener('click', () => {
-    const getVal = sel => document.querySelector(sel)?.value;
-    const params = {
-      handRaw:   getVal('#playerHand'),
-      pos:       (getVal('#position')||'CO').toUpperCase(),
-      players:   Number(getVal('#opponents')||6),
-      villainType: getVal('#villainType')||'normal',
-      situation: getVal('#situation')||'first-in',
-      numLimpers: Number(getVal('#numCallers')||0),
-      openerPos: (getVal('#openerPosition')||'UTG').toUpperCase(),
-      raiseSize: Number(getVal('#raiseSize')||2.5),
-      potSize:   Number(getVal('#potSize')||3)
-    };
-
-    const res = getPokerAdviceFull(params);
-    adviceOut.innerHTML = `
-      <div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
-        <div style="min-width:180px;"><strong>Actie:</strong> ${res.action}</div>
-        <div style="flex:1;"><strong>Reden:</strong> ${res.reason}</div>
-      </div>
-      <div style="margin-top:8px; font-size:0.95rem; color:#555;">
-        <em>Tip:</em> ranges zijn GTO-achtig en licht aangepast voor tafelgrootte & tegenstandertype.
-      </div>
-    `;
-  });
-  </script>
-</section>
-<!-- === /Poker Adviesblok === -->
-
-<hr>
-<h2>📷 Scanner</h2>
-<!-- === Pokerhand Scanner (breed, lagere hoogte + grote knoppen) === -->
-<section id="poker-scanner" style="padding:20px; text-align:center;">
-  <h2 style="margin-bottom:14px;">Pokerhand Scanner</h2>
-
-<!-- VERVANG jouw <video id="camera" ...> door dit blok -->
-<div id="cameraWrap"
-     style="
-       width:100%;
-       max-width:100%;
-       /* kies één van de twee regels hieronder: */
-       aspect-ratio:16/9;           /* optie A: vaste 16:9 */
-       /* height:58vh;              /* optie B: vaste hoogte, ~schermvullend */ 
-       background:#000;
-       border:1px solid #222;
-       border-radius:12px;
-       overflow:hidden;             /* belangrijk: croppen zonder balken */
-       margin:0 auto;
-     ">
-  <video id="camera" autoplay playsinline muted
-         style="
-           width:100%;
-           height:100%;
-           object-fit:cover;         /* vult het kader, geen balken */
-           object-position:center;   /* centreert beeld */
-           display:block;
-           background:#000;
-         ">
-  </video>
-</div>
-
-
-  <canvas id="scannerCanvas" style="display:none;"></canvas>
-
-  <!-- Grotere knoppen -->
-  <div style="margin-top:18px; display:flex; flex-wrap:wrap; gap:14px; justify-content:center;">
-    <button id="startBtn" style="padding:12px 26px; font-size:1.1rem;">▶ Start camera</button>
-    <button id="stopBtn" style="padding:12px 26px; font-size:1.1rem;">⏹ Stop camera</button>
-    <button id="calibrateBtn" style="padding:12px 26px; font-size:1.1rem;">🎯 Kalibreren</button>
-    <button id="resultBtn" style="padding:12px 26px; font-size:1.1rem;">🃏 Scanresultaat</button>
-    <button id="adviceBtn" style="padding:12px 26px; font-size:1.1rem;">💡 Toon advies</button>
-  </div>
-
-  <!-- Status en resultaten -->
-  <p id="scannerStatus" style="margin-top:14px; color:#666; font-size:1rem;">Gereed…</p>
-  <div id="scanResult" style="margin-top:10px; max-width:800px; text-align:left; margin-inline:auto;"></div>
-  <div id="scanAdvice" style="margin-top:14px; font-size:1.1rem; font-style:italic; color:#004085;"></div>
-
-  <script>
-    (function () {
+    // ======================
+    // Scanner (camera)
+    // ======================
+    (function setupScanner(){
       const video  = document.getElementById('camera');
       const canvas = document.getElementById('scannerCanvas');
       const status = document.getElementById('scannerStatus');
@@ -457,10 +418,7 @@
 
       async function startCamera() {
         try {
-          if (video.srcObject && video.srcObject.active) {
-            status.textContent = 'Camera is al actief.';
-            return;
-          }
+          if (video.srcObject && video.srcObject.active) { status.textContent = 'Camera is al actief.'; return; }
           const constraints = {
             video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
             audio: false
@@ -469,10 +427,9 @@
           video.srcObject = stream;
           status.textContent = 'Camera actief en klaar voor gebruik.';
         } catch (err) {
-          status.textContent = 'Camera niet beschikbaar: ' + err.message;
+          status.textContent = 'Camera niet beschikbaar: ' + (err && err.message ? err.message : err);
         }
       }
-
       function stopCamera() {
         if (stream) {
           stream.getTracks().forEach(t => t.stop());
@@ -481,12 +438,27 @@
           status.textContent = 'Camera gestopt.';
         }
       }
+      function videoReady() { return video && video.readyState >= 2 && (video.videoWidth||0) > 0; }
+
+      function snapshotMetrics() {
+        const w = video.videoWidth || 1280;
+        const h = video.videoHeight || 720;
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(video, 0, 0, w, h);
+        const { data } = ctx.getImageData(0, 0, w, h);
+        let sum = 0, sumSq = 0, n = data.length / 4;
+        for (let i=0; i<data.length; i+=4) {
+          const y = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
+          sum += y; sumSq += y*y;
+        }
+        const mean = sum / n;
+        const variance = sumSq / n - mean*mean;
+        return { mean, variance };
+      }
 
       function calibrate() {
-        if (!videoReady()) {
-          status.textContent = 'Start eerst de camera.';
-          return;
-        }
+        if (!videoReady()) { status.textContent = 'Start eerst de camera.'; return; }
         const m = snapshotMetrics();
         calibration = { mean: m.mean, variance: m.variance, ts: Date.now() };
         saveCalibration(calibration);
@@ -494,20 +466,17 @@
       }
 
       function showResult() {
-        if (!videoReady()) {
-          status.textContent = 'Start eerst de camera.';
-          return;
-        }
+        if (!videoReady()) { status.textContent = 'Start eerst de camera.'; return; }
         const m = snapshotMetrics();
         lastScan = m;
-        let compare = 'Geen kalibratie gevonden (tip: eerst Kalibreren).';
+        let compare = '<span class="muted">Geen kalibratie gevonden (tip: eerst Kalibreren).</span>';
         if (calibration) {
           const dMean = Math.abs(m.mean - calibration.mean);
           const dVar  = Math.abs(m.variance - calibration.variance);
           compare = `Δ helderheid: ${dMean.toFixed(1)}, Δ ruis: ${dVar.toFixed(1)}`;
         }
         out.innerHTML = `
-          <div style="padding:14px; border:1px solid #e5e5e5; border-radius:10px; background:#fafafa;">
+          <div class="card" style="padding:12px">
             <div style="font-weight:600; margin-bottom:6px;">Scanresultaat</div>
             <div><strong>Gem. helderheid:</strong> ${m.mean.toFixed(1)}</div>
             <div><strong>Variantie (ruis):</strong> ${m.variance.toFixed(1)}</div>
@@ -518,10 +487,7 @@
       }
 
       function showAdvice() {
-        if (!lastScan) {
-          advice.textContent = 'Geen scan beschikbaar. Druk eerst op “Scanresultaat”.';
-          return;
-        }
+        if (!lastScan) { advice.textContent = 'Geen scan beschikbaar. Druk eerst op “Scanresultaat”.'; return; }
         let msg = '';
         if (lastScan.mean > 150) msg = 'Licht beeld — probeer schaduw of afstand te corrigeren.';
         else if (lastScan.mean < 80) msg = 'Donker beeld — zorg voor meer licht boven de tafel.';
@@ -530,47 +496,24 @@
         status.textContent = 'Advies getoond 💡';
       }
 
-      function videoReady() {
-        return video && video.readyState >= 2 && (video.videoWidth || 0) > 0;
-      }
-
-      function snapshotMetrics() {
-        const w = video.videoWidth || 1280;
-        const h = video.videoHeight || 720;
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(video, 0, 0, w, h);
-        const { data } = ctx.getImageData(0, 0, w, h);
-        let sum = 0, sumSq = 0, n = data.length / 4;
-        for (let i = 0; i < data.length; i += 4) {
-          const y = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
-          sum += y; sumSq += y * y;
-        }
-        const mean = sum / n;
-        const variance = sumSq / n - mean * mean;
-        return { mean, variance };
-      }
-
-      function saveCalibration(c) {
-        try { localStorage.setItem('pokerScannerCalibration', JSON.stringify(c)); } catch {}
-      }
+      function saveCalibration(c) { try { localStorage.setItem('pokerScannerCalibration', JSON.stringify(c)); } catch {} }
       function loadCalibration() {
-        try {
-          const raw = localStorage.getItem('pokerScannerCalibration');
-          return raw ? JSON.parse(raw) : null;
-        } catch { return null; }
+        try { const raw = localStorage.getItem('pokerScannerCalibration'); return raw ? JSON.parse(raw) : null; }
+        catch { return null; }
       }
 
+      // Events
+      document.addEventListener('visibilitychange', ()=>{ if(document.hidden) stopCamera(); });
       startB.addEventListener('click', startCamera);
       stopB .addEventListener('click', stopCamera);
       calB  .addEventListener('click', calibrate);
       resB  .addEventListener('click', showResult);
       advB  .addEventListener('click', showAdvice);
-
       video.addEventListener('loadeddata', () => { status.textContent = 'Camera actief.'; });
+
+      // Auto-start als toegestaan
       startCamera();
     })();
   </script>
-</section>
-<!-- === /Pokerhand Scanner === -->
+</body>
+</html>
