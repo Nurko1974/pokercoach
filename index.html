@@ -91,6 +91,302 @@
   <label>Postflop: ik ben in positie (IP)</label>
   <input id="ipFlag" type="checkbox" checked />
 </div>
+<!-- === Poker Adviesblok (Preflop Range Engine) === -->
+<section id="poker-advice" style="padding:20px; text-align:left; max-width:900px; margin:0 auto;">
+  <h2>Advies voor actie</h2>
+
+  <!-- Optionele extra velden als je ze nog niet had -->
+  <div style="display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin:8px 0 12px;">
+    <label>Jouw hand (bv. AhKh, 9c9d, AsQs)
+      <input id="playerHand" placeholder="Bv. AhKh" style="width:100%;">
+    </label>
+    <label>Jouw positie (UTG, MP, CO, BTN, SB, BB)
+      <select id="position">
+        <option>UTG</option><option>MP</option><option selected>CO</option>
+        <option>BTN</option><option>SB</option><option>BB</option>
+      </select>
+    </label>
+    <label>Aantal tegenstanders (aan tafel)
+      <input id="opponents" type="number" min="2" max="9" value="6" style="width:100%;">
+    </label>
+    <label>Tegenstander type
+      <select id="villainType">
+        <option value="normal" selected>Normal</option>
+        <option value="tight">Tight</option>
+        <option value="loose">Loose</option>
+        <option value="aggro">Aggro</option>
+        <option value="passive">Passive</option>
+      </select>
+    </label>
+    <label>Situatie
+      <select id="situation">
+        <option value="first-in" selected>First-in (open)</option>
+        <option value="limpers">Er zijn limpers</option>
+        <option value="facing-raise">Facing raise</option>
+      </select>
+    </label>
+    <label>Aantal limpers (als van toepassing)
+      <input id="numCallers" type="number" min="0" value="0" style="width:100%;">
+    </label>
+    <label>Opener positie (als facing raise)
+      <select id="openerPosition">
+        <option>UTG</option><option>MP</option><option>CO</option>
+        <option>BTN</option><option>SB</option><option>BB</option>
+      </select>
+    </label>
+    <label>Open/raise size in bb (optioneel)
+      <input id="raiseSize" type="number" step="0.5" value="2.5">
+    </label>
+    <label>Pot (bb, optioneel)
+      <input id="potSize" type="number" step="0.5" value="3">
+    </label>
+  </div>
+
+  <button id="generateAdviceBtn" style="padding:12px 24px; font-size:1.05rem;">💡 Bereken advies</button>
+
+  <div id="adviceOutput" style="margin-top:12px; padding:14px; border:1px solid #ddd; border-radius:8px; background:#fafafa;">
+    Vul je parameters in en klik op <em>Bereken advies</em>.
+  </div>
+
+  <script>
+  // ---------- Helpers: hand parsing ----------
+  function canonHand(raw) {
+    if (!raw) return null;
+    const s = raw.replace(/[^2-9TJQKAshdc]/gi,'').toUpperCase();
+    if (s.length < 4) return null;
+    const r1 = s[0], s1 = s[1], r2 = s[2], s2 = s[3];
+    const ranksOrder = '23456789TJQKA';
+    // sort by rank strength, keep suitedness
+    const suited = s1 === s2;
+    const [hi, lo] = (ranksOrder.indexOf(r1) >= ranksOrder.indexOf(r2)) ? [r1,r2] : [r2,r1];
+    if (hi === lo) return hi+hi; // pair AA,TT,...
+    return hi+lo+(suited?'s':'o'); // AKs, AQo,...
+  }
+
+  // Expand shorthand like "22+", "A2s+", "K9s+", "AJo+", "T9s", "KQo"
+  function expandRange(rangeStr) {
+    const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
+    const pairIdx = r => ranks.indexOf(r);
+    const out = new Set();
+    for (const token of rangeStr.replace(/\s/g,'').split(',')) {
+      if (!token) continue;
+      // Pairs with +
+      if (/^[2-9TJQKA]{2}\+$/.test(token) && token[0]===token[1]) {
+        const start = pairIdx(token[0]);
+        for (let i=start;i<ranks.length;i++) out.add(ranks[i]+ranks[i]);
+        continue;
+      }
+      // Broadways Axs+, Axo+
+      if (/^[2-9TJQKA][2-9TJQKA][so]\+$/.test(token)) {
+        const hi = token[0], loStart = token[1], suited = token[2]==='s';
+        const hiIdx = pairIdx(hi), loIdxStart = pairIdx(loStart);
+        for (let j=loIdxStart;j<hiIdx;j++) out.add(hi+ranks[j]+(suited?'s':'o'));
+        continue;
+      }
+      // K9s+ (kicker or higher)
+      if (/^[2-9TJQKA][2-9TJQKA]s\+$/.test(token)) {
+        const hi = token[0], loStart = token[1];
+        const loIdxStart = pairIdx(loStart);
+        for (let j=loIdxStart;j<ranks.length-1;j++) out.add(hi+ranks[j]+'s');
+        continue;
+      }
+      if (/^[2-9TJQKA][2-9TJQKA]o\+$/.test(token)) {
+        const hi = token[0], loStart = token[1];
+        const loIdxStart = pairIdx(loStart);
+        for (let j=loIdxStart;j<ranks.length-1;j++) out.add(hi+ranks[j]+'o');
+        continue;
+      }
+      // Single exact hand (AKs/AKo/KQo/T9s)
+      if (/^[2-9TJQKA][2-9TJQKA][so]$/.test(token)) { out.add(token); continue; }
+      if (/^[2-9TJQKA]{2}$/.test(token) && token[0]===token[1]) { out.add(token); continue; }
+      // Suited connectors like T9s, 98s, 87s (already handled by exact)
+      // Fallback ignore
+    }
+    return out;
+  }
+  function inRange(hand, rangeStr) {
+    if (!hand) return false;
+    return expandRange(rangeStr).has(hand);
+  }
+
+  // ---------- Ranges (compact, GTO-achtig) ----------
+  const OPEN_RANGES = {
+    UTG: '77+,A2s+,KTs+,QTs+,JTs,T9s,98s,AQo+,KQo',
+    MP:  '66+,A2s+,K9s+,QTs+,JTs,T9s,98s,87s,AQo+,KQo',
+    CO:  '55+,A2s+,K8s+,Q9s+,J9s+,T8s+,97s+,AJo+,KQo',
+    BTN: '44+,A2s+,K6s+,Q8s+,J8s+,T8s+,98s,87s,76s,A9o+,KTo+,QTo+,JTo',
+    SB:  '66+,A2s+,K9s+,Q9s+,J9s+,T9s,98s,AQo+,KQo',
+    BB:  'Any reasonable defend vs steals (use facing-raise logic)'
+  };
+
+  const ISO_RANGES = {
+    EP: '77+,A2s+,KTs+,QTs+,JTs,T9s,AQo+',
+    MP: '66+,A2s+,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo',
+    LP: '55+,A2s+,K9s+,Q9s+,J9s+,T8s+,98s,87s,AJo+,KTo+,QTo+,JTo'
+  };
+
+  // vs open: simple 3bet/call maps by hero position bucket (EP/MP/LP/Blinds)
+  const THREEBET_VS_OPEN = {
+    EP: 'QQ+,AKs,AKo',                     // hero EP vs any open
+    MP: 'JJ+,AKs,AKo,AQs',
+    LP: 'TT+,AKs,AKo,AQs,AQo,KQs',
+    SB: 'JJ+,AKs,AKo,AQs',
+    BB: 'JJ+,AKs,AKo,AQs'
+  };
+  const CALL_VS_OPEN = {
+    EP: 'JJ-77,AQs-AJs,KQs',               // tight calls
+    MP: 'TT-66,AQs-AJs,ATs,KQs,QJs,JTs,T9s,98s',
+    LP: '99-55,AQs-ATs,AJo,KQs,KJs,QJs,JTs,T9s,98s,87s,76s',
+    SB: 'TT-66,AQs-ATs,KQs,QJs,JTs,T9s,98s',
+    BB: 'Wide defend: 99-22,Axs,KTs+,QTs+,JTs,T9s,98s,AJo+,KQo'
+  };
+
+  function bucket(pos) {
+    if (pos==='UTG') return 'EP';
+    if (pos==='MP')  return 'MP';
+    if (pos==='CO' || pos==='BTN') return 'LP';
+    if (pos==='SB') return 'SB';
+    return 'BB';
+  }
+
+  // Op tafelgrootte aanpassen: meer spelers => iets tighter; short-handed => losser
+  function adjustByPlayers(rangeStr, players) {
+    if (!rangeStr) return rangeStr;
+    if (players <= 5) {
+      // Maak iets losser: voeg wat combos toe
+      return rangeStr + ',K9s,Q9s,J9s,T8s,97s,KJo,QJo,JTo';
+    }
+    if (players >= 8) {
+      // Maak iets tighter: haal marginale offsuit broadways weg
+      return rangeStr.replace(/,KTo\+?|,QTo\+?|,JTo/g,'');
+    }
+    return rangeStr;
+  }
+
+  // Villain-type aanpassing (heel simpel)
+  function adjustByVillain(rangeStr, type) {
+    if (!rangeStr) return rangeStr;
+    if ((type||'').toLowerCase()==='loose') {
+      return rangeStr + ',A8o,KTo'; // iets ruimer
+    }
+    if ((type||'').toLowerCase()==='tight') {
+      return rangeStr.replace(/,AJo\+?/,''); // iets tighter
+    }
+    return rangeStr;
+  }
+
+  // Sizing regels
+  function openSize(pos, limpers=0, oop=false) {
+    if (limpers>0) {
+      const base = 3; // 3bb iso
+      return (base + limpers + (oop?1:0)).toFixed(1) + 'bb';
+    }
+    if (pos==='CO' || pos==='BTN') return '2.5bb';
+    return '3bb';
+  }
+  function threeBetSize(ip)  { return (ip ? '3x open' : '4x open'); }
+  function fourBetSize(ip)   { return (ip ? '2.2x 3bet' : '2.5x 3bet'); }
+
+  // Hoofdfunctie: bepaalt advies
+  function getPokerAdviceFull(params) {
+    const {
+      handRaw, pos, players, villainType, situation,
+      numLimpers=0, openerPos='UTG', raiseSize=2.5
+    } = params;
+
+    const hand = canonHand(handRaw);
+    if (!hand) return { action:'—', reason:'Ongeldige of lege hand. Gebruik bijv. AhKh of 9c9d.' };
+
+    // FIRST-IN / OPEN
+    if (situation==='first-in') {
+      let r = OPEN_RANGES[pos] || OPEN_RANGES.UTG;
+      r = adjustByPlayers(r, players);
+      r = adjustByVillain(r, villainType);
+
+      if (inRange(hand, r)) {
+        const size = openSize(pos, 0, (pos==='SB' || pos==='BB'));
+        return { action:`Open-raise ${size}`, reason:`${hand} valt in de ${pos}-open range.` };
+      } else {
+        return { action:'Fold', reason:`${hand} zit niet in de ${pos}-open range bij ${players}-handed.` };
+      }
+    }
+
+    // ISOLEREN TEGEN LIMPER(S)
+    if (situation==='limpers') {
+      const bucketPos = bucket(pos);
+      let r = ISO_RANGES[bucketPos==='LP'?'LP':(bucketPos==='MP'?'MP':'EP')];
+      r = adjustByPlayers(r, players);
+      r = adjustByVillain(r, villainType);
+
+      if (inRange(hand, r)) {
+        const size = openSize(pos, Number(numLimpers||0), (pos==='SB'||pos==='BB'));
+        return { action:`Iso-raise ${size}`, reason:`${hand} is goed als iso tegen ${numLimpers} limper(s) vanuit ${pos}.` };
+      } else {
+        // speculatieve suited connectors in positie nog net toestaan
+        const sc = '54s,65s,76s,87s,98s,T9s,JTs';
+        if ((pos==='CO'||pos==='BTN') && inRange(hand, sc) && numLimpers>=2) {
+          return { action:`Iso-raise ${openSize(pos, numLimpers)} of Call`, reason:`Speculatieve hand + meerdere limpers in positie.` };
+        }
+        return { action:'Check/Overlimp of Fold', reason:`Te marginaal om te isoleren vanuit ${pos}.` };
+      }
+    }
+
+    // FACING RAISE
+    if (situation==='facing-raise') {
+      const heroB = bucket(pos);
+      let r3 = THREEBET_VS_OPEN[heroB] || THREEBET_VS_OPEN.MP;
+      let rc = CALL_VS_OPEN[heroB]      || CALL_VS_OPEN.MP;
+
+      r3 = adjustByPlayers(r3, players);
+      rc = adjustByPlayers(rc, players);
+      r3 = adjustByVillain(r3, villainType);
+      rc = adjustByVillain(rc, villainType);
+
+      const ip = (pos==='CO'||pos==='BTN') && !(openerPos==='BTN'); // simpele IP check
+      if (inRange(hand, r3)) {
+        return { action:`3-bet naar ${threeBetSize(ip)}`, reason:`${hand} valt in 3-bet range (${heroB}) vs open uit ${openerPos}.` };
+      }
+      if (inRange(hand, rc)) {
+        return { action:'Call', reason:`${hand} valt in call range (${heroB}) vs open uit ${openerPos}.` };
+      }
+      return { action:'Fold', reason:`${hand} niet winstgevend als call/3-bet (${heroB}) vs ${openerPos} open.` };
+    }
+
+    return { action:'—', reason:'Onbekende situatie.' };
+  }
+
+  // ------------ UI hookup ------------
+  const adviceBtn = document.getElementById('generateAdviceBtn');
+  const adviceOut = document.getElementById('adviceOutput');
+
+  adviceBtn.addEventListener('click', () => {
+    const getVal = sel => document.querySelector(sel)?.value;
+    const params = {
+      handRaw:   getVal('#playerHand'),
+      pos:       (getVal('#position')||'CO').toUpperCase(),
+      players:   Number(getVal('#opponents')||6),
+      villainType: getVal('#villainType')||'normal',
+      situation: getVal('#situation')||'first-in',
+      numLimpers: Number(getVal('#numCallers')||0),
+      openerPos: (getVal('#openerPosition')||'UTG').toUpperCase(),
+      raiseSize: Number(getVal('#raiseSize')||2.5),
+      potSize:   Number(getVal('#potSize')||3)
+    };
+
+    const res = getPokerAdviceFull(params);
+    adviceOut.innerHTML = `
+      <div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+        <div style="min-width:180px;"><strong>Actie:</strong> ${res.action}</div>
+        <div style="flex:1;"><strong>Reden:</strong> ${res.reason}</div>
+      </div>
+      <div style="margin-top:8px; font-size:0.95rem; color:#555;">
+        <em>Tip:</em> ranges zijn GTO-achtig en licht aangepast voor tafelgrootte & tegenstandertype.
+      </div>
+    `;
+  });
+  </script>
+</section>
+<!-- === /Poker Adviesblok === -->
 
 <hr>
 <h2>📷 Scanner</h2>
