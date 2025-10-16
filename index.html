@@ -148,10 +148,8 @@ const frameCanvas = document.createElement('canvas');
 const frameCtx = frameCanvas.getContext('2d', { willReadFrequently:true });
 let calib = loadCalib();
 
-<script>
 /* ===================== [B2] DOM HOOKS & UI HELPERS ===================== */
 const $ = (id) => document.getElementById(id);
-
 const els = {
   video: $('camera'),
   overlay: $('overlay'),
@@ -182,18 +180,12 @@ const els = {
   blinds: $('blinds'),
   scanLog: $('scanLog'),
 };
-
-function setStatus(msg){ els.status.textContent = msg; }
-function setPill(el, txt, cls){ el.textContent = txt; el.className = cls; }
+function setStatus(msg){ els.status.textContent=msg; }
+function setPill(el, txt, cls){ el.textContent=txt; el.className=cls; }
 function updateCalibUI(){
-  if (calib?.rects?.length === ZONE_ORDER.length) {
-    setPill(els.calibState, 'OK', 'ok');
-  } else {
-    setPill(els.calibState, 'Nodig', 'maybe');
-  }
+  if(calib?.rects?.length===ZONE_ORDER.length){ setPill(els.calibState,'OK','ok'); }
+  else { setPill(els.calibState,'Nodig','maybe'); }
 }
-</script>
-
 
 /* ================= [B3] CAMERA LAYER (start/stop, zoom, focus, fit) ==== */
 async function startCamera(){
@@ -210,7 +202,6 @@ async function startCamera(){
     track = stream.getVideoTracks()[0];
     caps = track.getCapabilities?.() || {};
 
-    // Overlay size volgen
     const rect = els.video.getBoundingClientRect();
     els.overlay.width = rect.width; els.overlay.height = 340;
 
@@ -299,7 +290,6 @@ function drawOverlay(){
 function rectPx(r){ const W=els.overlay.width,H=els.overlay.height; return {x:r.x*W,y:r.y*H,w:r.w*W,h:r.h*H}; }
 function pointToNorm(clientX,clientY){ const rect=els.overlay.getBoundingClientRect();
   const x=(clientX-rect.left)/rect.width, y=(clientY-rect.top)/rect.height; return {x:clamp(x,0,1), y:clamp(y,0,1)}; }
-// Touch & click
 els.overlay.addEventListener('touchstart',(e)=>{ if(!calibMode)return; e.preventDefault();
   const t=e.changedTouches[0]; handleTap(pointToNorm(t.clientX,t.clientY)); }, {passive:false});
 els.overlay.addEventListener('click',(e)=>{ if(!calibMode)return; handleTap(pointToNorm(e.clientX,e.clientY)); });
@@ -320,7 +310,7 @@ function loadCalib(){ try{ return JSON.parse(localStorage.getItem('pc_calib_v1')
 function toGrayscaleAndBoost(data){
   for(let i=0;i<data.length;i+=4){
     const r=data[i], g=data[i+1], b=data[i+2];
-    let v=0.2126*r+0.7152*g+0.0722*b; v=(v-128)*1.2+128; v=v<0?0:v>255?255:v;
+    let v=0.2126*r+0.7152*g+0.0722+b; v=(v-128)*1.2+128; v=v<0?0:v>255?255:v;
     data[i]=data[i+1]=data[i+2]=v;
   }
 }
@@ -345,7 +335,6 @@ function parseHand(t){ if(!t?.text) return '';
   const s=t.text.toUpperCase().replace(/\s/g,''); const m=s.match(/([2-9TJQKA])([CDHS])([2-9TJQKA])([CDHS])/);
   return m ? `${m[1]}${m[2].toLowerCase()}${m[3]}${m[4].toLowerCase()}` : '';
 }
-// Fallback: zoek blinds in veelvoorkomende frame-plekken
 async function ocrFullFrameForBlinds(videoEl){
   const vw=videoEl.videoWidth||1280, vh=videoEl.videoHeight||720;
   const dw=640, dh=Math.round(vh*(640/vw));
