@@ -21,7 +21,9 @@
     .card{background:var(--card);border:1px solid var(--border);border-radius:14px}
     .card h2{margin:0 0 8px;font-size:16px;color:var(--muted)}
     .card .inner{padding:12px}
+    .video-wrap{position:relative}
     video{width:100%;height:340px;background:#000;border-radius:12px;object-fit:cover}
+    canvas.overlay{position:absolute;left:0;top:0;width:100%;height:340px;pointer-events:none;border-radius:12px}
     .row{display:flex;gap:8px;flex-wrap:wrap}
     button{
       appearance:none;border:1px solid var(--border);background:#1f1f1f;
@@ -46,6 +48,7 @@
     .ok{color:#10b981}.maybe{color:#f59e0b}.bad{color:#ef4444}
     .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
     .scanlog{white-space:pre-wrap;background:#0f0f0f;border:1px dashed #333;border-radius:10px;padding:10px;font-size:12px;color:#c9c9c9}
+    .hint{font-size:12px;color:#c9c9c9;margin-left:auto}
   </style>
 </head>
 <body>
@@ -56,7 +59,10 @@
     <section class="card">
       <div class="inner">
         <h2>Scanner</h2>
-        <video id="camera" playsinline muted></video>
+        <div class="video-wrap">
+          <video id="camera" playsinline muted></video>
+          <canvas id="overlay" class="overlay"></canvas>
+        </div>
         <div class="row" style="margin-top:10px">
           <button id="btnStart" class="btn-lg btn-primary">Camera aan</button>
           <button id="btnStop" class="btn-lg btn-danger">Camera uit</button>
@@ -66,9 +72,10 @@
           <span id="status" class="status"></span>
         </div>
         <div class="row" style="margin-top:8px">
-          <span class="pill">Kalibratie: <strong id="calibState" class="ok">OK</strong></span>
+          <span class="pill">Kalibratie: <strong id="calibState" class="maybe">Nodig</strong></span>
           <span class="pill">Herkenning: <strong id="recConf" class="maybe">–</strong></span>
           <span class="pill">FPS: <strong id="fps" class="">–</strong></span>
+          <span class="hint" id="calibHint"></span>
         </div>
       </div>
     </section>
@@ -124,11 +131,14 @@
     </section>
   </div>
 
+  <!-- Tesseract.js (OCR) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
   <script>
-  // ======= Camera & Scanner Integratie =======
   (function(){
     const els = {
       video: document.getElementById('camera'),
+      overlay: document.getElementById('overlay'),
       btnStart: document.getElementById('btnStart'),
       btnStop: document.getElementById('btnStop'),
       btnCalibrate: document.getElementById('btnCalibrate'),
@@ -138,6 +148,7 @@
       calibState: document.getElementById('calibState'),
       recConf: document.getElementById('recConf'),
       fps: document.getElementById('fps'),
+      calibHint: document.getElementById('calibHint'),
       // fields:
       hand: document.getElementById('hand'),
       positie: document.getElementById('positie'),
@@ -153,6 +164,15 @@
     let stream = null;
     let rafId = null;
     let lastFpsTime = 0, frames = 0;
+
+    // Hidden canvas voor frames & crops
+    const frameCanvas = document.createElement('canvas');
+    const frameCtx = frameCanvas.getContext('2d', { willReadFrequently:true });
+
+    // ===== Kalibratie zones =====
+    const ZONE_ORDER = ['Blinds', 'Pot', 'Stack', 'Hand'];
+    let calib = loadCalib() || null;
+    updateCalibUI();
 
     // --- Camera controls ---
     async function startCamera(){
@@ -189,28 +209,193 @@
     }
     function setStatus(msg){ els.status.textContent = msg; }
 
-    // --- Kalibratie (dummy + hook) ---
-    async function calibrate(){
-      // Hier kun je bv. een referentiekader vastleggen (tafelranden, HUD-positie, crop-regio's)
-      await ScannerService.calibrate(els.video);
-      els.calibState.textContent = 'OK';
-      els.calibState.className = 'ok';
-      setStatus('Kalibratie voltooid.');
+    // --- Kalibratie door slepen ---
+    let calibMode = false, dragging = false, startPt = null, currentRects = [];
+    const overlayCtx = els.overlay.getContext('2d');
+
+    function beginCalib(){
+      calibMode = true;
+      currentRects = [];
+      els.calibHint.textContent = 'Sleep kader voor: ' + ZONE_ORDER[currentRects.length];
+      els.overlay.style.pointerEvents = 'auto';
+      drawOverlay();
+      setStatus('Kalibratie: teken 4 kaders (Blinds, Pot, Stack, Hand).');
     }
 
-    // --- Scannen -> velden vullen ---
+    function endCalib(save=true){
+      calibMode = false;
+      els.overlay.style.pointerEvents = 'none';
+      drawOverlay();
+      if(save && currentRects.length === ZONE_ORDER.length){
+        calib = {
+          // normalize naar percentages van het videoframe
+          rects: currentRects,
+          ts: Date.now()
+        };
+        saveCalib(calib);
+        setStatus('Kalibratie opgeslagen.');
+        els.calibState.textContent = 'OK';
+        els.calibState.className = 'ok';
+        els.calibHint.textContent = '';
+      } else {
+        setStatus('Kalibratie geannuleerd of incompleet.');
+      }
+      updateCalibUI();
+    }
+
+    function drawOverlay(tempRect){
+      overlayCtx.clearRect(0,0,els.overlay.width, els.overlay.height);
+      overlayCtx.lineWidth = 2;
+      overlayCtx.strokeStyle = 'rgba(0,255,160,0.9)';
+      overlayCtx.fillStyle = 'rgba(0,255,160,0.15)';
+
+      // getekende rects
+      currentRects.forEach(r => {
+        const p = rectPx(r);
+        overlayCtx.fillRect(p.x, p.y, p.w, p.h);
+        overlayCtx.strokeRect(p.x, p.y, p.w, p.h);
+      });
+      if(tempRect){
+        const p = rectPx(tempRect);
+        overlayCtx.fillRect(p.x, p.y, p.w, p.h);
+        overlayCtx.strokeRect(p.x, p.y, p.w, p.h);
+      }
+
+      // labels
+      overlayCtx.font = '13px system-ui';
+      overlayCtx.fillStyle = 'rgba(255,255,255,0.9)';
+      currentRects.forEach((r,i)=>{
+        const p = rectPx(r);
+        overlayCtx.fillText(ZONE_ORDER[i], p.x+6, p.y+16);
+      });
+    }
+
+    function rectPx(r){
+      // r = normalized percentages t.o.v. video resolutie
+      const W = els.overlay.width, H = els.overlay.height;
+      return { x: r.x*W, y: r.y*H, w: r.w*W, h: r.h*H };
+    }
+
+    function mouseToNorm(e){
+      const rect = els.overlay.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      return { x: clamp(x,0,1), y: clamp(y,0,1) };
+    }
+    function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
+
+    els.overlay.addEventListener('mousedown', (e)=>{
+      if(!calibMode) return;
+      dragging = true;
+      startPt = mouseToNorm(e);
+    });
+    els.overlay.addEventListener('mousemove', (e)=>{
+      if(!calibMode || !dragging) return;
+      const pt = mouseToNorm(e);
+      const r = {
+        x: Math.min(startPt.x, pt.x),
+        y: Math.min(startPt.y, pt.y),
+        w: Math.abs(pt.x - startPt.x),
+        h: Math.abs(pt.y - startPt.y),
+      };
+      drawOverlay(r);
+    });
+    window.addEventListener('mouseup', (e)=>{
+      if(!calibMode || !dragging) return;
+      dragging = false;
+      const pt = mouseToNorm(e);
+      const r = {
+        x: Math.min(startPt.x, pt.x),
+        y: Math.min(startPt.y, pt.y),
+        w: Math.abs(pt.x - startPt.x),
+        h: Math.abs(pt.y - startPt.y),
+      };
+      currentRects.push(r);
+      drawOverlay();
+      if(currentRects.length < ZONE_ORDER.length){
+        els.calibHint.textContent = 'Sleep kader voor: ' + ZONE_ORDER[currentRects.length];
+      }else{
+        els.calibHint.textContent = '';
+        endCalib(true);
+      }
+    });
+
+    function updateCalibUI(){
+      if(calib && calib.rects && calib.rects.length === ZONE_ORDER.length){
+        els.calibState.textContent = 'OK';
+        els.calibState.className = 'ok';
+      } else {
+        els.calibState.textContent = 'Nodig';
+        els.calibState.className = 'maybe';
+      }
+    }
+    function saveCalib(c){ try{ localStorage.setItem('pc_calib_v1', JSON.stringify(c)); }catch{} }
+    function loadCalib(){ try{ return JSON.parse(localStorage.getItem('pc_calib_v1')); }catch{return null;} }
+
+    // --- Scannen -> OCR -> velden invullen ---
     async function scan(){
+      if(!stream){ setStatus('Camera is niet actief.'); return; }
+      if(!calib || !calib.rects || calib.rects.length!==ZONE_ORDER.length){
+        setStatus('Eerst kalibreren a.u.b.');
+        return;
+      }
       setStatus('Scannen…');
-      const data = await ScannerService.scan(els.video);
-      // verwacht data als:
-      // {
-      //   hand: "AhKh", positie: "UTG", players: 6,
-      //   callers: 0, raisers: 1, pot: 3.5, stack: 120, blinds: "1/2",
-      //   confidence: 0.86, raw: { ... }
-      // }
-      fillFieldsFromScan(data);
-      logScan(data);
-      updateConfidence(data.confidence);
+
+      // Zorg dat we het echte videokader pakken
+      const vw = els.video.videoWidth || 1280;
+      const vh = els.video.videoHeight || 720;
+      frameCanvas.width = vw; frameCanvas.height = vh;
+      frameCtx.drawImage(els.video, 0, 0, vw, vh);
+
+      // OCR per zone
+      const out = {};
+      const crops = zoneCrops(vw, vh, calib.rects);
+
+      // Blinds
+      out.blindsRaw = await ocrText(crops.Blinds, '0123456789/.$ ');
+      out.blinds = parseBlinds(out.blindsRaw);
+
+      // Pot
+      out.potRaw = await ocrText(crops.Pot, '0123456789.,$ ');
+      out.pot = parseNumber(out.potRaw);
+
+      // Stack
+      out.stackRaw = await ocrText(crops.Stack, '0123456789.,$ ');
+      out.stack = parseNumber(out.stackRaw);
+
+      // Hand (als HUD letters toont zoals "Ah Kh" of "AhKh")
+      out.handRaw = await ocrText(crops.Hand, '23456789TJQKAcdhsCDHS ');
+      out.hand = parseHand(out.handRaw);
+
+      // Confidence (heel simpel: gemiddelde confidence van OCR blokken die iets opleverden)
+      const confs = [];
+      if(out.blindsRaw && out.blindsRaw.conf) confs.push(out.blindsRaw.conf);
+      if(out.potRaw && out.potRaw.conf) confs.push(out.potRaw.conf);
+      if(out.stackRaw && out.stackRaw.conf) confs.push(out.stackRaw.conf);
+      if(out.handRaw && out.handRaw.conf) confs.push(out.handRaw.conf);
+      const confidence = confs.length ? (confs.reduce((a,b)=>a+b,0)/confs.length)/100 : 0.0;
+
+      // Velden invullen zonder jouw handmatige input te overschrijven met lege waarden
+      if(out.hand && /^[2-9TJQKA][cdhs][2-9TJQKA][cdhs]$/i.test(out.hand)) els.hand.value = out.hand;
+      if(out.blinds) els.blinds.value = out.blinds;
+      if(Number.isFinite(out.pot)) els.pot.value = out.pot;
+      if(Number.isFinite(out.stack)) els.stack.value = Math.round(out.stack);
+
+      // NB: positie, spelers, callers/raisers zijn vaak niet als tekst aanwezig in HUD’s.
+      // Die laten we voor nu ongemoeid. (Kunnen we later via icon/seat-detectie doen.)
+
+      // log + confidence
+      logScan({ 
+        blinds: out.blinds, pot: out.pot, stack: out.stack, hand: out.hand,
+        raw: {
+          blinds: out.blindsRaw?.text || null,
+          pot: out.potRaw?.text || null,
+          stack: out.stackRaw?.text || null,
+          hand: out.handRaw?.text || null
+        },
+        confidence: +(confidence.toFixed(2))
+      });
+      updateConfidence(confidence);
       setStatus('Scan gereed.');
     }
 
@@ -221,23 +406,81 @@
       els.recConf.className = pct >= 85 ? 'ok' : (pct >= 60 ? 'maybe' : 'bad');
     }
 
-    function fillFieldsFromScan(d){
-      // Alleen invullen wanneer er een waarde is, zodat handmatige correctie behouden blijft
-      if(d.hand) els.hand.value = d.hand;
-      if(d.positie) els.positiesel ? els.positiesel.value = d.positie : els.positie.value = d.positie;
-      if(Number.isFinite(d.players)) els.players.value = d.players;
-      if(Number.isFinite(d.callers)) els.callers.value = d.callers;
-      if(Number.isFinite(d.raisers)) els.raisers.value = d.raisers;
-      if(Number.isFinite(d.pot)) els.pot.value = d.pot;
-      if(Number.isFinite(d.stack)) els.stack.value = d.stack;
-      if(d.blinds) els.blinds.value = d.blinds;
-    }
-
     function logScan(d){
       els.scanLog.textContent = JSON.stringify(d, null, 2);
     }
 
-    // --- Advies (hook; gebruikt ingevulde velden) ---
+    function zoneCrops(vw, vh, rects){
+      const map = {};
+      rects.forEach((r,i)=>{
+        const name = ZONE_ORDER[i];
+        const sx = Math.floor(r.x * vw);
+        const sy = Math.floor(r.y * vh);
+        const sw = Math.max(1, Math.floor(r.w * vw));
+        const sh = Math.max(1, Math.floor(r.h * vh));
+        const c = document.createElement('canvas');
+        c.width = sw; c.height = sh;
+        const ctx = c.getContext('2d', { willReadFrequently:true });
+        ctx.drawImage(frameCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+        // lichte pre-processing: grijs + contrast
+        const img = ctx.getImageData(0,0,sw,sh);
+        toGrayscaleAndBoost(img.data);
+        ctx.putImageData(img,0,0);
+        map[name] = c;
+      });
+      return map;
+    }
+
+    function toGrayscaleAndBoost(data){
+      for(let i=0;i<data.length;i+=4){
+        const r=data[i], g=data[i+1], b=data[i+2];
+        let v = 0.2126*r + 0.7152*g + 0.0722*b;
+        // boost contrast
+        v = (v-128)*1.2 + 128;
+        v = v<0?0:v>255?255:v;
+        data[i]=data[i+1]=data[i+2]=v;
+      }
+    }
+
+    async function ocrText(canvas, whitelist){
+      try{
+        const { data } = await Tesseract.recognize(canvas, 'eng', {
+          tessedit_char_whitelist: whitelist || undefined
+        });
+        // pak de beste line
+        const line = (data && data.text) ? data.text.trim() : '';
+        // gemiddelde confidence
+        const confs = (data && data.words) ? data.words.map(w=>w.confidence||0) : [];
+        const conf = confs.length ? confs.reduce((a,b)=>a+b,0)/confs.length : (data?.confidence ?? 0);
+        return { text: line, conf };
+      }catch(e){
+        return { text:'', conf:0 };
+      }
+    }
+
+    function parseBlinds(t){
+      if(!t || !t.text) return '';
+      let s = t.text.replace(/\s/g,'');
+      // voorbeelden: $1/$2, 1/2, 0.5/1
+      const m = s.match(/(\$?\d+(\.\d+)?)[/](\$?\d+(\.\d+)?)/);
+      return m ? `${m[1].replace('$','')}/${m[3].replace('$','')}` : '';
+    }
+    function parseNumber(t){
+      if(!t || !t.text) return NaN;
+      const s = t.text.replace(/[^\d.,]/g,'').replace(',', '.');
+      const num = parseFloat(s);
+      return Number.isFinite(num) ? num : NaN;
+    }
+    function parseHand(t){
+      if(!t || !t.text) return '';
+      const s = t.text.toUpperCase().replace(/\s/g,'');
+      // Normaliseer AhKh / AHKH -> AhKh
+      const m = s.match(/([2-9TJQKA])([CDHS])([2-9TJQKA])([CDHS])/);
+      if(!m) return '';
+      return `${m[1]}${m[2].toLowerCase()}${m[3]}${m[4].toLowerCase()}`;
+    }
+
+    // --- Advies (placeholder; gebruikt ingevulde velden) ---
     function showAdvice(){
       const input = {
         hand: els.hand.value.trim(),
@@ -249,73 +492,32 @@
         stack: +els.stack.value || 0,
         blinds: els.blinds.value.trim()
       };
-      // Hier koppel je jouw GTO/regels aan de ingevulde waarden:
       const advies = SimpleAdvisor.advise(input);
       alert(`Advies: ${advies.action}\n\nUitleg: ${advies.reason}`);
     }
 
     // --- Events ---
-    els.btnStart.addEventListener('click', startCamera);
+    els.btnStart.addEventListener('click', async ()=>{
+      await startCamera();
+      // overlay dimensies gelijk houden aan video box
+      const rect = els.video.getBoundingClientRect();
+      els.overlay.width = rect.width;
+      els.overlay.height = 340; // gelijk aan CSS height
+      drawOverlay();
+    });
     els.btnStop.addEventListener('click', stopCamera);
-    els.btnCalibrate.addEventListener('click', calibrate);
+    els.btnCalibrate.addEventListener('click', beginCalib);
     els.btnScan.addEventListener('click', scan);
     els.btnAdvice.addEventListener('click', showAdvice);
-
-    // ======= ScannerService =======
-    // Vervang de inhoud van scan() door jouw echte herkenning (Tesseract, TensorFlow, OpenCV.js, HUD parsing).
-    const ScannerService = {
-      calibrated: false,
-      async calibrate(videoEl){
-        // Voorbeeld: bereken crop-regio's aan de hand van resolutie
-        this.calibrated = true;
-        return true;
-      },
-      async scan(videoEl){
-        if(!this.calibrated){
-          // auto-kalibreer als user dat vergat
-          await this.calibrate(videoEl);
-        }
-
-        // -----
-        // Plaats hier jouw echte herkenning:
-        // - Lees frame van videoEl naar canvas
-        // - OCR: Tesseract.js (blinds, stacks, HUD tekst)
-        // - Card detection: template matching / ML / kleur-masks
-        // - Positie: HUD highlight of seat index
-        // - #players: getelde avatars/stoelen actief
-        // -----
-
-        // Dummy voorbeeldresultaat (zodat de flow al werkt)
-        const dummy = this._mockDetect();
-        return dummy;
-      },
-      _mockDetect(){
-        // Simuleer realistische variatie, om de UI te testen
-        const pos = ['UTG','UTG+1','MP','CO','BTN','SB','BB'][Math.floor(Math.random()*7)];
-        const hands = ['AhKh','QsQd','9c9s','AdJs','7h8h','KcQc'];
-        const val = hands[Math.floor(Math.random()*hands.length)];
-        const players = [6,7,8,9][Math.floor(Math.random()*4)];
-        const callers = Math.floor(Math.random()*3);
-        const raisers = Math.floor(Math.random()*2);
-        const pot = +(Math.random()*6+1).toFixed(2);
-        const stack = Math.floor(Math.random()*150)+50;
-        const blinds = Math.random()>0.5 ? '1/2' : '0.5/1';
-        const confidence = +(0.6 + Math.random()*0.35).toFixed(2);
-        return {
-          hand: val, positie: pos, players, callers, raisers, pot, stack, blinds,
-          confidence,
-          raw: { note: 'mock-resultaat ter illustratie' }
-        };
-      }
-    };
 
     // ======= SimpleAdvisor (placeholder) =======
     const SimpleAdvisor = {
       advise(input){
-        // Supersimpel voorbeeld (vervang dit door jouw GTO/regels)
-        // Voorbeeldregel: 100bb deep, BTN en geen raise => open-raise.
-        const deep = input.stack && input.blinds && parseFloat(input.blinds.split('/')[1]||input.blinds) ? 
-          input.stack / parseFloat(input.blinds.split('/')[1]||input.blinds) : null;
+        const deep = (()=>{
+          if(!input.stack || !input.blinds) return null;
+          const bb = parseFloat((input.blinds.split('/')[1] || input.blinds).replace(',','.'));
+          return bb ? input.stack / bb : null;
+        })();
 
         if(input.positie==='BTN' && input.raisers===0){
           return { action: 'Open-raise 2.5bb', reason: 'Button, geen raise voor je, brede opening toegestaan.' };
@@ -326,15 +528,13 @@
         if(input.raisers>=1 && !/A[KQJ]|QQ|JJ|TT/.test(input.hand)){
           return { action: 'Fold', reason: 'Eerdere agressie en hand buiten 3-bet range.' };
         }
-        if(deep && deep < 30 && input.hand.match(/[KQJT]s/)){
-          return { action: 'Shove of 3-bet jam', reason: 'Short stack met speelbare suited broadway.' };
+        if(deep && deep < 30 && /[KQJT]s$/i.test(input.hand)){
+          return { action: 'Shove of 3-bet jam', reason: 'Short stack met suited broadway.' };
         }
         return { action: 'Check/Fold', reason: 'Conservatief default advies; verfijn met echte ranges.' };
       }
     };
 
-    // Optioneel: start camera meteen (comment uit als je dit niet wilt)
-    // startCamera();
   })();
   </script>
 </body>
