@@ -57,7 +57,7 @@
   <h1>Poker Coach</h1>
 
   <div class="wrap grid">
-    <!-- CAMERA + CONTROLS -->
+    <!-- ========================== UI: CAMERA + CONTROLS ========================== -->
     <section class="card">
       <div class="inner">
         <h2>Scanner</h2>
@@ -76,7 +76,6 @@
           <span id="status" class="status"></span>
         </div>
 
-        <!-- Nieuw: focus/zoom/fit -->
         <div class="row" style="margin-top:8px">
           <button id="btnRefocus" class="btn-ghost">AF opnieuw</button>
           <div class="zoomwrap">
@@ -93,7 +92,7 @@
       </div>
     </section>
 
-    <!-- FIELDS + RESULT -->
+    <!-- ========================== UI: FIELDS + DEBUG =========================== -->
     <section class="card">
       <div class="inner">
         <h2>Gevulde velden</h2>
@@ -122,423 +121,339 @@
     </section>
   </div>
 
-  <!-- Tesseract.js (OCR) -->
+  <!-- ========================== EXTERNAL LIBS ========================== -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
+  <!-- ========================== SCRIPT (MODULE) ======================== -->
   <script>
-  (function(){
-    const els = {
-      video: camera, overlay, btnStart, btnStop, btnCalibrate, btnResetCalib, btnScan, btnAdvice,
-      status, calibState, recConf, fps, calibHint,
-      hand, positie, players, callers, raisers, pot, stack, blinds, scanLog,
-      btnRefocus, btnZoomOut, btnZoomIn, zoomSlider, btnFitMode, videoWrap: document.getElementById('videoWrap')
-    };
+/* =========================================================================
+   TABLE OF CONTENTS (blokindeling)
+   -------------------------------------------------------------------------
+   [B1] CONFIG & STATE
+   [B2] DOM HOOKS & UI HELPERS
+   [B3] CAMERA LAYER (start/stop, zoom, focus, fit)
+   [B4] CALIBRATIE (touch 2-tap) + OVERLAY
+   [B5] OCR PIPELINE (preprocess, Tesseract, parsers, blinds fallback)
+   [B6] SCAN ORCHESTRATOR (frame → crops → OCR → velden)
+   [B7] ADVISOR (placeholder logica)
+   [B8] EVENTS (click/touch wiring)
+   ========================================================================*/
 
-    let stream = null, track = null, caps = null, settings = null;
-    let rafId = null, lastFpsTime = 0, frames = 0;
-    let fitCover = false; // false=contain (hele tafel), true=cover (beeldvullend)
-    // Hidden canvas voor frames & crops
-    const frameCanvas = document.createElement('canvas');
-    const frameCtx = frameCanvas.getContext('2d', { willReadFrequently:true });
+/* ============================= [B1] CONFIG & STATE ===================== */
+const ZONE_ORDER = ['Blinds', 'Pot', 'Stack', 'Hand'];
+let stream=null, track=null, caps=null;
+let rafId=null, lastFpsTime=0, frames=0;
+let fitCover=false;
+const frameCanvas = document.createElement('canvas');
+const frameCtx = frameCanvas.getContext('2d', { willReadFrequently:true });
+let calib = loadCalib();
 
-    // ===== Kalibratie zones =====
-    const ZONE_ORDER = ['Blinds', 'Pot', 'Stack', 'Hand'];
-    let calib = loadCalib() || null;
-    updateCalibUI();
+/* ===================== [B2] DOM HOOKS & UI HELPERS ===================== */
+const els = {
+  video: document.getElementById('camera'),
+  overlay: document.getElementById('overlay'),
+  videoWrap: document.getElementById('videoWrap'),
+  btnStart: document.getElementById('btnStart'),
+  btnStop: document.getElementById('btnStop'),
+  btnCalibrate: document.getElementById('btnCalibrate'),
+  btnResetCalib: document.getElementById('btnResetCalib'),
+  btnScan: document.getElementById('btnScan'),
+  btnAdvice: document.getElementById('btnAdvice'),
+  btnRefocus: document.getElementById('btnRefocus'),
+  btnZoomOut: document.getElementById('btnZoomOut'),
+  btnZoomIn: document.getElementById('btnZoomIn'),
+  zoomSlider: document.getElementById('zoomSlider'),
+  btnFitMode: document.getElementById('btnFitMode'),
+  status: document.getElementById('status'),
+  calibState: document.getElementById('calibState'),
+  recConf: document.getElementById('recConf'),
+  fps: document.getElementById('fps'),
+  calibHint: document.getElementById('calibHint'),
+  hand: document.getElementById('hand'),
+  positie: document.getElementById('positie'),
+  players: document.getElementById('players'),
+  callers: document.getElementById('callers'),
+  raisers: document.getElementById('raisers'),
+  pot: document.getElementById('pot'),
+  stack: document.getElementById('stack'),
+  blinds: document.getElementById('blinds'),
+  scanLog: document.getElementById('scanLog'),
+};
+function setStatus(msg){ els.status.textContent=msg; }
+function setPill(el, txt, cls){ el.textContent=txt; el.className=cls; }
+function updateCalibUI(){
+  if(calib?.rects?.length===ZONE_ORDER.length){
+    setPill(els.calibState,'OK','ok');
+  } else {
+    setPill(els.calibState,'Nodig','maybe');
+  }
+}
 
-    // --- Camera start met betere constraints ---
-    async function startCamera(){
-      try{
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            frameRate: { ideal: 30 },
-            advanced: [
-              { focusMode: 'continuous' },
-              { exposureMode: 'continuous' },
-              { whiteBalanceMode: 'continuous' }
-            ]
-          },
-          audio: false
-        });
-        els.video.srcObject = stream;
-        await els.video.play();
-
-        // overlay matchen
-        const rect = els.video.getBoundingClientRect();
-        els.overlay.width = rect.width;
-        els.overlay.height = 340;
-
-        // track/caps ophalen
-        track = stream.getVideoTracks()[0];
-        caps = track.getCapabilities ? track.getCapabilities() : {};
-        settings = track.getSettings ? track.getSettings() : {};
-
-        // Zoom UI initialiseren (als ondersteund)
-        initZoom();
-
-        // Probeer autofocus / AE te activeren
-        await tryAutoFocus();
-
-        tickFps();
-        setStatus('Camera actief.');
-      }catch(err){
-        setStatus('Camera fout: ' + err.message);
-      }
-    }
-
-    function stopCamera(){
-      cancelAnimationFrame(rafId);
-      if(stream){
-        stream.getTracks().forEach(t=>t.stop());
-        stream = null; track = null; caps = null; settings = null;
-      }
-      els.video.srcObject = null;
-      els.fps.textContent = '–';
-      setStatus('Camera uit.');
-    }
-
-    function tickFps(time){
-      frames++;
-      const now = time || performance.now();
-      if(!lastFpsTime) lastFpsTime = now;
-      if(now - lastFpsTime > 1000){
-        els.fps.textContent = frames.toString();
-        frames = 0; lastFpsTime = now;
-      }
-      rafId = requestAnimationFrame(tickFps);
-    }
-    function setStatus(msg){ els.status.textContent = msg; }
-
-    // ====== Zoom ======
-    function initZoom(){
-      if(!caps || caps.zoom === undefined){ // niet ondersteund
-        els.zoomSlider.disabled = true;
-        els.btnZoomIn.disabled = true;
-        els.btnZoomOut.disabled = true;
-        return;
-      }
-      const min = caps.zoom.min || 1, max = caps.zoom.max || 1, step = caps.zoom.step || 0.1;
-      els.zoomSlider.min = String(min);
-      els.zoomSlider.max = String(max);
-      els.zoomSlider.step = String(step);
-      const current = (track.getSettings && track.getSettings().zoom) || min;
-      els.zoomSlider.value = String(current);
-
-      els.zoomSlider.oninput = () => setZoom(parseFloat(els.zoomSlider.value));
-      els.btnZoomIn.onclick = () => setZoom(Math.min(max, parseFloat(els.zoomSlider.value) + step));
-      els.btnZoomOut.onclick = () => setZoom(Math.max(min, parseFloat(els.zoomSlider.value) - step));
-
-      // Pinch-to-zoom op video
-      let pinchStart = null, startZoom = current;
-      els.videoWrap.addEventListener('touchstart', (e)=>{
-        if(e.touches.length===2 && caps.zoom !== undefined){
-          pinchStart = dist(e.touches[0], e.touches[1]);
-          startZoom = parseFloat(els.zoomSlider.value);
-        }
-      }, {passive:true});
-      els.videoWrap.addEventListener('touchmove', (e)=>{
-        if(e.touches.length===2 && pinchStart){
-          const d = dist(e.touches[0], e.touches[1]);
-          const factor = d / pinchStart;
-          const target = clamp(startZoom * factor, min, max);
-          setZoom(target);
-          els.zoomSlider.value = String(target);
-        }
-      }, {passive:true});
-    }
-    const dist = (a,b)=> Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
-    const clamp = (v,a,b)=> Math.max(a, Math.min(b,v));
-
-    async function setZoom(z){
-      if(!track || caps.zoom===undefined) return;
-      try{
-        await track.applyConstraints({ advanced: [{ zoom: z }] });
-      }catch(e){}
-    }
-
-    // ====== Tap-to-focus (best effort) ======
-    async function tryAutoFocus(){
-      if(!track || !track.applyConstraints) return;
-      try{
-        // Activeer continuous modes waar mogelijk
-        await track.applyConstraints({ advanced: [
-          { focusMode: 'continuous' },
-          { exposureMode: 'continuous' },
-          { whiteBalanceMode: 'continuous' }
-        ]});
-      }catch(e){}
-    }
-
-    async function refocus(){
-      if(!track || !track.applyConstraints) return;
-      // Sommige camera’s hebben 'single-shot' focus, anders togglen we continuous om her-focus te forceren
-      try{
-        if(caps && caps.focusMode && caps.focusMode.includes('single-shot')){
-          await track.applyConstraints({ advanced: [{ focusMode: 'single-shot' }] });
-        } else {
-          await track.applyConstraints({ advanced: [{ focusMode: 'manual' }] });
-          await new Promise(r=>setTimeout(r,120));
-          await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-        }
-        setStatus('Autofocus uitgevoerd.');
-      }catch(e){
-        setStatus('Autofocus niet ondersteund op dit device.');
-      }
-    }
-
-    // Tik op de video = opnieuw focussen
-    els.videoWrap.addEventListener('click', ()=>refocus());
-    els.btnRefocus.addEventListener('click', ()=>refocus());
-
-    // ====== Fit-mode (hele tafel in beeld of beeldvullend) ======
-    els.btnFitMode.addEventListener('click', ()=>{
-      fitCover = !fitCover;
-      if(fitCover){
-        els.video.classList.add('cover');
-        els.btnFitMode.textContent = 'Fit: Cover';
-      }else{
-        els.video.classList.remove('cover');
-        els.btnFitMode.textContent = 'Fit: Contain';
-      }
+/* ================= [B3] CAMERA LAYER (start/stop, zoom, focus, fit) ==== */
+async function startCamera(){
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:30},
+        advanced:[{focusMode:'continuous'},{exposureMode:'continuous'},{whiteBalanceMode:'continuous'}]
+      }, audio:false
     });
+    els.video.srcObject = stream;
+    await els.video.play();
 
-    // ======== Kalibratie (touch 2-tap) + OCR / Scan ========
-    let calibMode = false, tapStart = null, currentRects = [];
-    const overlayCtx = els.overlay.getContext('2d');
+    track = stream.getVideoTracks()[0];
+    caps = track.getCapabilities?.() || {};
 
-    function beginCalib(){
-      calibMode = true; tapStart = null; currentRects = [];
-      els.calibHint.textContent = 'Tik 2× voor: ' + ZONE_ORDER[currentRects.length];
-      els.overlay.style.pointerEvents = 'auto';
-      drawOverlay();
-      setStatus('Kalibratie: tik linkerbovenhoek en rechteronderhoek voor elke zone.');
-    }
-    function endCalib(save=true){
-      calibMode = false; tapStart = null; els.overlay.style.pointerEvents = 'none'; drawOverlay();
-      if(save && currentRects.length === ZONE_ORDER.length){
-        calib = { rects: currentRects, ts: Date.now() };
-        try{ localStorage.setItem('pc_calib_v1', JSON.stringify(calib)); }catch{}
-        els.calibState.textContent = 'OK'; els.calibState.className = 'ok'; els.calibHint.textContent = '';
-        setStatus('Kalibratie opgeslagen.');
-      } else { setStatus('Kalibratie geannuleerd of incompleet.'); }
-      updateCalibUI();
-    }
-    function resetCalib(){
-      calib = null; currentRects=[]; tapStart=null;
-      try{ localStorage.removeItem('pc_calib_v1'); }catch{}
-      els.calibState.textContent='Nodig'; els.calibState.className='maybe'; els.calibHint.textContent='';
-      drawOverlay(); setStatus('Kalibratie gereset.');
-    }
-    function updateCalibUI(){
-      if(calib && calib.rects && calib.rects.length === ZONE_ORDER.length){
-        els.calibState.textContent = 'OK'; els.calibState.className = 'ok';
-      } else { els.calibState.textContent = 'Nodig'; els.calibState.className = 'maybe'; }
-    }
-    function drawOverlay(){
-      overlayCtx.clearRect(0,0,els.overlay.width, els.overlay.height);
-      overlayCtx.lineWidth = 2;
-      overlayCtx.strokeStyle = 'rgba(0,255,160,0.9)';
-      overlayCtx.fillStyle   = 'rgba(0,255,160,0.15)';
-      currentRects.forEach((r,i)=>{
-        const p = rectPx(r);
-        overlayCtx.fillRect(p.x,p.y,p.w,p.h);
-        overlayCtx.strokeRect(p.x,p.y,p.w,p.h);
-        overlayCtx.font='13px system-ui'; overlayCtx.fillStyle='rgba(255,255,255,0.95)';
-        overlayCtx.fillText(ZONE_ORDER[i], p.x+6, p.y+16);
-      });
-    }
-    function rectPx(r){ const W=els.overlay.width,H=els.overlay.height; return {x:r.x*W,y:r.y*H,w:r.w*W,h:r.h*H}; }
-    function pointToNorm(clientX, clientY){
-      const rect = els.overlay.getBoundingClientRect();
-      const x=(clientX-rect.left)/rect.width, y=(clientY-rect.top)/rect.height;
-      return {x: clamp(x,0,1), y: clamp(y,0,1)};
-    }
-    els.overlay.addEventListener('touchstart',(e)=>{
-      if(!calibMode) return; e.preventDefault();
-      const t = e.changedTouches[0]; handleTap(pointToNorm(t.clientX, t.clientY));
-    }, {passive:false});
-    els.overlay.addEventListener('click',(e)=>{ if(!calibMode) return; handleTap(pointToNorm(e.clientX,e.clientY)); });
-    function handleTap(pt){
-      if(currentRects.length >= ZONE_ORDER.length) return;
-      if(!tapStart){ tapStart = pt; els.calibHint.textContent = 'Tik tweede hoek voor: '+ZONE_ORDER[currentRects.length]; }
-      else{
-        const r = { x:Math.min(tapStart.x, pt.x), y:Math.min(tapStart.y, pt.y), w:Math.abs(pt.x-tapStart.x), h:Math.abs(pt.y-tapStart.y) };
-        currentRects.push(r); tapStart=null; drawOverlay();
-        if(currentRects.length < ZONE_ORDER.length){ els.calibHint.textContent = 'Tik 2× voor: '+ZONE_ORDER[currentRects.length]; }
-        else { els.calibHint.textContent=''; endCalib(true); }
-      }
-    }
+    // Overlay size volgen
+    const rect = els.video.getBoundingClientRect();
+    els.overlay.width = rect.width; els.overlay.height = 340;
 
-    // OCR / scan
-    const overlay = els.overlay; // for size
-    async function scan(){
-      if(!stream){ setStatus('Camera is niet actief.'); return; }
-      if(!calib || !calib.rects || calib.rects.length!==ZONE_ORDER.length){
-        setStatus('Eerst kalibreren a.u.b.'); return;
-      }
-      setStatus('Scannen…');
+    initZoom();
+    await tryAutoFocus();
+    tickFps();
+    setStatus('Camera actief.');
+  }catch(err){ setStatus('Camera fout: '+err.message); }
+}
+function stopCamera(){
+  cancelAnimationFrame(rafId);
+  stream?.getTracks().forEach(t=>t.stop());
+  stream=track=caps=null; els.video.srcObject=null; els.fps.textContent='–';
+  setStatus('Camera uit.');
+}
+function tickFps(time){
+  frames++; const now=time||performance.now(); if(!lastFpsTime) lastFpsTime=now;
+  if(now-lastFpsTime>1000){ els.fps.textContent=String(frames); frames=0; lastFpsTime=now; }
+  rafId = requestAnimationFrame(tickFps);
+}
+// Zoom
+function initZoom(){
+  if(caps?.zoom===undefined){ els.zoomSlider.disabled=els.btnZoomIn.disabled=els.btnZoomOut.disabled=true; return; }
+  const min=caps.zoom.min||1, max=caps.zoom.max||1, step=caps.zoom.step||0.1;
+  els.zoomSlider.min=String(min); els.zoomSlider.max=String(max); els.zoomSlider.step=String(step);
+  const current = track.getSettings?.().zoom || min;
+  els.zoomSlider.value=String(current);
+  els.zoomSlider.oninput = ()=> setZoom(parseFloat(els.zoomSlider.value));
+  els.btnZoomIn.onclick = ()=> setZoom(Math.min(max, parseFloat(els.zoomSlider.value)+step));
+  els.btnZoomOut.onclick= ()=> setZoom(Math.max(min, parseFloat(els.zoomSlider.value)-step));
+  // pinch
+  let pinchStart=null, startZoom=current;
+  els.videoWrap.addEventListener('touchstart',e=>{
+    if(e.touches.length===2 && caps.zoom!==undefined){ pinchStart=dist(e.touches[0],e.touches[1]); startZoom=parseFloat(els.zoomSlider.value); }
+  },{passive:true});
+  els.videoWrap.addEventListener('touchmove',e=>{
+    if(e.touches.length===2 && pinchStart){ const d=dist(e.touches[0],e.touches[1]); const factor=d/pinchStart;
+      const target=clamp(startZoom*factor, min, max); setZoom(target); els.zoomSlider.value=String(target); }
+  },{passive:true});
+}
+async function setZoom(z){ try{ await track?.applyConstraints({advanced:[{zoom:z}]}); }catch{} }
+const dist=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+async function tryAutoFocus(){ try{
+  await track?.applyConstraints({advanced:[{focusMode:'continuous'},{exposureMode:'continuous'},{whiteBalanceMode:'continuous'}]});
+}catch{} }
+async function refocus(){ try{
+  const fm = caps?.focusMode||[];
+  if(fm.includes('single-shot')){ await track?.applyConstraints({advanced:[{focusMode:'single-shot'}]}); }
+  else { await track?.applyConstraints({advanced:[{focusMode:'manual'}]}); await new Promise(r=>setTimeout(r,120));
+         await track?.applyConstraints({advanced:[{focusMode:'continuous'}]}); }
+  setStatus('Autofocus uitgevoerd.');
+}catch{ setStatus('Autofocus niet ondersteund.'); } }
+function toggleFit(){
+  fitCover=!fitCover;
+  if(fitCover){ els.video.classList.add('cover'); els.btnFitMode.textContent='Fit: Cover'; }
+  else { els.video.classList.remove('cover'); els.btnFitMode.textContent='Fit: Contain'; }
+}
 
-      const vw = els.video.videoWidth || 1280, vh = els.video.videoHeight || 720;
-      frameCanvas.width = vw; frameCanvas.height = vh;
-      frameCtx.drawImage(els.video, 0, 0, vw, vh);
+/* ========== [B4] CALIBRATIE (touch 2-tap) + OVERLAY TEKENING =========== */
+let calibMode=false, tapStart=null, currentRects=[];
+const octx = els.overlay.getContext('2d');
+function beginCalib(){
+  calibMode=true; tapStart=null; currentRects=[];
+  els.calibHint.textContent='Tik 2× voor: '+ZONE_ORDER[currentRects.length];
+  els.overlay.style.pointerEvents='auto'; drawOverlay();
+  setStatus('Kalibratie: tik linkerbovenhoek en rechteronderhoek per zone.');
+}
+function endCalib(save=true){
+  calibMode=false; tapStart=null; els.overlay.style.pointerEvents='none'; drawOverlay();
+  if(save && currentRects.length===ZONE_ORDER.length){
+    calib={rects:currentRects,ts:Date.now()}; saveCalib(calib);
+    setPill(els.calibState,'OK','ok'); els.calibHint.textContent=''; setStatus('Kalibratie opgeslagen.');
+  }else{ setStatus('Kalibratie geannuleerd of incompleet.'); }
+  updateCalibUI();
+}
+function resetCalib(){ calib=null; currentRects=[]; tapStart=null; try{localStorage.removeItem('pc_calib_v1');}catch{}
+  setPill(els.calibState,'Nodig','maybe'); els.calibHint.textContent=''; drawOverlay(); setStatus('Kalibratie gereset.');
+}
+function drawOverlay(){
+  octx.clearRect(0,0,els.overlay.width,els.overlay.height);
+  octx.lineWidth=2; octx.strokeStyle='rgba(0,255,160,0.9)'; octx.fillStyle='rgba(0,255,160,0.15)';
+  currentRects.forEach((r,i)=>{ const p=rectPx(r); octx.fillRect(p.x,p.y,p.w,p.h); octx.strokeRect(p.x,p.y,p.w,p.h);
+    octx.font='13px system-ui'; octx.fillStyle='rgba(255,255,255,0.95)'; octx.fillText(ZONE_ORDER[i],p.x+6,p.y+16); });
+}
+function rectPx(r){ const W=els.overlay.width,H=els.overlay.height; return {x:r.x*W,y:r.y*H,w:r.w*W,h:r.h*H}; }
+function pointToNorm(clientX,clientY){ const rect=els.overlay.getBoundingClientRect();
+  const x=(clientX-rect.left)/rect.width, y=(clientY-rect.top)/rect.height; return {x:clamp(x,0,1), y:clamp(y,0,1)}; }
+// Touch & click
+els.overlay.addEventListener('touchstart',(e)=>{ if(!calibMode)return; e.preventDefault();
+  const t=e.changedTouches[0]; handleTap(pointToNorm(t.clientX,t.clientY)); }, {passive:false});
+els.overlay.addEventListener('click',(e)=>{ if(!calibMode)return; handleTap(pointToNorm(e.clientX,e.clientY)); });
+function handleTap(pt){
+  if(currentRects.length>=ZONE_ORDER.length) return;
+  if(!tapStart){ tapStart=pt; els.calibHint.textContent='Tik tweede hoek voor: '+ZONE_ORDER[currentRects.length]; }
+  else{
+    const r={x:Math.min(tapStart.x,pt.x), y:Math.min(tapStart.y,pt.y), w:Math.abs(pt.x-tapStart.x), h:Math.abs(pt.y-tapStart.y)};
+    currentRects.push(r); tapStart=null; drawOverlay();
+    if(currentRects.length<ZONE_ORDER.length){ els.calibHint.textContent='Tik 2× voor: '+ZONE_ORDER[currentRects.length]; }
+    else { els.calibHint.textContent=''; endCalib(true); }
+  }
+}
+function saveCalib(c){ try{ localStorage.setItem('pc_calib_v1', JSON.stringify(c)); }catch{} }
+function loadCalib(){ try{ return JSON.parse(localStorage.getItem('pc_calib_v1')); }catch{ return null; } }
 
-      const crops = zoneCrops(vw, vh, calib.rects);
-      const out = {};
+/* ========== [B5] OCR PIPELINE (preprocess, Tesseract, parsers, fb) ===== */
+function toGrayscaleAndBoost(data){
+  for(let i=0;i<data.length;i+=4){
+    const r=data[i], g=data[i+1], b=data[i+2];
+    let v=0.2126*r+0.7152*g+0.0722*b; v=(v-128)*1.2+128; v=v<0?0:v>255?255:v;
+    data[i]=data[i+1]=data[i+2]=v;
+  }
+}
+async function ocrText(canvas, whitelist){
+  try{
+    const {data} = await Tesseract.recognize(canvas, 'eng', { tessedit_char_whitelist: whitelist||undefined });
+    const line=(data?.text||'').trim();
+    const confs=(data?.words||[]).map(w=>w.confidence||0);
+    const conf=confs.length?confs.reduce((a,b)=>a+b,0)/confs.length:(data?.confidence??0);
+    return { text:line, conf };
+  }catch{ return { text:'', conf:0 }; }
+}
+function parseBlinds(t){ if(!t?.text) return '';
+  const s=t.text.replace(/\s/g,''); const m=s.match(/(\$?\d+(\.\d+)?)[/](\$?\d+(\.\d+)?)/);
+  return m ? `${m[1].replace('$','')}/${m[3].replace('$','')}` : '';
+}
+function parseNumber(t){ if(!t?.text) return NaN;
+  const s=t.text.replace(/[^\d.,]/g,'').replace(',', '.'); const num=parseFloat(s);
+  return Number.isFinite(num)?num:NaN;
+}
+function parseHand(t){ if(!t?.text) return '';
+  const s=t.text.toUpperCase().replace(/\s/g,''); const m=s.match(/([2-9TJQKA])([CDHS])([2-9TJQKA])([CDHS])/);
+  return m ? `${m[1]}${m[2].toLowerCase()}${m[3]}${m[4].toLowerCase()}` : '';
+}
+// Fallback: zoek blinds in veelvoorkomende frame-plekken
+async function ocrFullFrameForBlinds(videoEl){
+  const vw=videoEl.videoWidth||1280, vh=videoEl.videoHeight||720;
+  const dw=640, dh=Math.round(vh*(640/vw));
+  const c=document.createElement('canvas'); c.width=dw; c.height=dh;
+  const ctx=c.getContext('2d',{willReadFrequently:true}); ctx.drawImage(videoEl,0,0,dw,dh);
+  const candidates=[{x:0.02,y:0.02,w:0.30,h:0.12},{x:0.68,y:0.02,w:0.30,h:0.12},{x:0.35,y:0.82,w:0.30,h:0.16}];
+  for(const r of candidates){
+    const sx=Math.floor(r.x*dw), sy=Math.floor(r.y*dh), sw=Math.floor(r.w*dw), sh=Math.floor(r.h*dh);
+    const seg=document.createElement('canvas'); seg.width=sw; seg.height=sh;
+    const sctx=seg.getContext('2d',{willReadFrequently:true});
+    sctx.drawImage(c,sx,sy,sw,sh,0,0,sw,sh);
+    const img=sctx.getImageData(0,0,sw,sh); toGrayscaleAndBoost(img.data); sctx.putImageData(img,0,0);
+    const res=await ocrText(seg,'0123456789/.$ '); const cleaned=(res.text||'').replace(/\s/g,'');
+    const m = cleaned.match(/(\$?\d+(\.\d+)?)[/](\$?\d+(\.\d+)?)/);
+    if(m) return `${m[1].replace('$','')}/${m[3].replace('$','')}`;
+  }
+  return '';
+}
 
-      out.blindsRaw = await ocrText(crops.Blinds, '0123456789/.$ ');
-      out.blinds    = parseBlinds(out.blindsRaw);
-      if(!out.blinds){ // fallback veelgebruikte plekken
-        const fb = await ocrFullFrameForBlinds(els.video);
-        if(fb) out.blinds = fb;
-      }
+/* ========== [B6] SCAN ORCHESTRATOR (frame → crops → OCR → velden) ====== */
+function cropsFromCalib(vw,vh,rects){
+  const map={};
+  rects.forEach((r,i)=>{
+    const name=ZONE_ORDER[i];
+    const sx=Math.floor(r.x*vw), sy=Math.floor(r.y*vh);
+    const sw=Math.max(1,Math.floor(r.w*vw)), sh=Math.max(1,Math.floor(r.h*vh));
+    const c=document.createElement('canvas'); c.width=sw; c.height=sh;
+    const ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(frameCanvas, sx,sy,sw,sh, 0,0,sw,sh);
+    const img=ctx.getImageData(0,0,sw,sh); toGrayscaleAndBoost(img.data); ctx.putImageData(img,0,0);
+    map[name]=c;
+  });
+  return map;
+}
+function updateConfidence(c){
+  const pct = Math.round((c||0)*100); els.recConf.textContent=pct+'%';
+  els.recConf.className = pct>=85?'ok':(pct>=60?'maybe':'bad');
+}
+function logScan(d){ els.scanLog.textContent = JSON.stringify(d,null,2); }
+async function scan(){
+  if(!stream){ return setStatus('Camera is niet actief.'); }
+  if(!(calib?.rects?.length===ZONE_ORDER.length)){ return setStatus('Eerst kalibreren a.u.b.'); }
+  setStatus('Scannen…');
 
-      out.potRaw = await ocrText(crops.Pot, '0123456789.,$ ');
-      out.pot    = parseNumber(out.potRaw);
+  const vw=els.video.videoWidth||1280, vh=els.video.videoHeight||720;
+  frameCanvas.width=vw; frameCanvas.height=vh; frameCtx.drawImage(els.video,0,0,vw,vh);
 
-      out.stackRaw = await ocrText(crops.Stack, '0123456789.,$ ');
-      out.stack    = parseNumber(out.stackRaw);
+  const crops = cropsFromCalib(vw,vh,calib.rects);
+  const out = {};
 
-      out.handRaw = await ocrText(crops.Hand, '23456789TJQKAcdhsCDHS ');
-      out.hand    = parseHand(out.handRaw);
+  out.blindsRaw = await ocrText(crops.Blinds,'0123456789/.$ ');
+  out.blinds    = parseBlinds(out.blindsRaw);
+  if(!out.blinds){ out.blinds = await ocrFullFrameForBlinds(els.video) || ''; }
 
-      const confs = [];
-      if(out.blindsRaw?.conf) confs.push(out.blindsRaw.conf);
-      if(out.potRaw?.conf)    confs.push(out.potRaw.conf);
-      if(out.stackRaw?.conf)  confs.push(out.stackRaw.conf);
-      if(out.handRaw?.conf)   confs.push(out.handRaw.conf);
-      const confidence = confs.length ? (confs.reduce((a,b)=>a+b,0)/confs.length)/100 : 0.0;
+  out.potRaw = await ocrText(crops.Pot,'0123456789.,$ ');
+  out.pot    = parseNumber(out.potRaw);
 
-      if(out.hand && /^[2-9TJQKA][cdhs][2-9TJQKA][cdhs]$/i.test(out.hand)) els.hand.value = out.hand;
-      if(out.blinds) els.blinds.value = out.blinds;
-      if(Number.isFinite(out.pot))   els.pot.value = out.pot;
-      if(Number.isFinite(out.stack)) els.stack.value = Math.round(out.stack);
+  out.stackRaw = await ocrText(crops.Stack,'0123456789.,$ ');
+  out.stack    = parseNumber(out.stackRaw);
 
-      logScan({ 
-        blinds: out.blinds, pot: out.pot, stack: out.stack, hand: out.hand,
-        raw: { blinds: out.blindsRaw?.text||null, pot: out.potRaw?.text||null,
-               stack: out.stackRaw?.text||null, hand: out.handRaw?.text||null },
-        confidence: +(confidence.toFixed(2))
-      });
-      updateConfidence(confidence);
-      setStatus('Scan gereed.');
-    }
+  out.handRaw = await ocrText(crops.Hand,'23456789TJQKAcdhsCDHS ');
+  out.hand    = parseHand(out.handRaw);
 
-    function zoneCrops(vw, vh, rects){
-      const map = {};
-      rects.forEach((r,i)=>{
-        const name = ZONE_ORDER[i];
-        const sx = Math.floor(r.x*vw), sy = Math.floor(r.y*vh);
-        const sw = Math.max(1, Math.floor(r.w*vw)), sh = Math.max(1, Math.floor(r.h*vh));
-        const c = document.createElement('canvas'); c.width=sw; c.height=sh;
-        const ctx = c.getContext('2d', { willReadFrequently:true });
-        ctx.drawImage(frameCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
-        const img = ctx.getImageData(0,0,sw,sh); toGrayscaleAndBoost(img.data); ctx.putImageData(img,0,0);
-        map[name] = c;
-      });
-      return map;
-    }
-    function toGrayscaleAndBoost(data){
-      for(let i=0;i<data.length;i+=4){
-        const r=data[i], g=data[i+1], b=data[i+2];
-        let v=0.2126*r+0.7152*g+0.0722*b; v=(v-128)*1.2+128; v=v<0?0:v>255?255:v;
-        data[i]=data[i+1]=data[i+2]=v;
-      }
-    }
+  const confs=[out.blindsRaw?.conf,out.potRaw?.conf,out.stackRaw?.conf,out.handRaw?.conf].filter(x=>typeof x==='number');
+  const confidence = confs.length ? (confs.reduce((a,b)=>a+b,0)/confs.length)/100 : 0;
 
-    async function ocrText(canvas, whitelist){
-      try{
-        const { data } = await Tesseract.recognize(canvas, 'eng', { tessedit_char_whitelist: whitelist||undefined });
-        const line = (data && data.text) ? data.text.trim() : '';
-        const confs = (data && data.words) ? data.words.map(w=>w.confidence||0) : [];
-        const conf = confs.length ? confs.reduce((a,b)=>a+b,0)/confs.length : (data?.confidence ?? 0);
-        return { text: line, conf };
-      }catch(e){ return { text:'', conf:0 }; }
-    }
-    function parseBlinds(t){
-      if(!t || !t.text) return '';
-      let s = t.text.replace(/\s/g,'');
-      const m = s.match(/(\$?\d+(\.\d+)?)[/](\$?\d+(\.\d+)?)/);
-      return m ? `${m[1].replace('$','')}/${m[3].replace('$','')}` : '';
-    }
-    function parseNumber(t){
-      if(!t || !t.text) return NaN;
-      const s = t.text.replace(/[^\d.,]/g,'').replace(',', '.');
-      const num = parseFloat(s); return Number.isFinite(num) ? num : NaN;
-    }
-    function parseHand(t){
-      if(!t || !t.text) return '';
-      const s = t.text.toUpperCase().replace(/\s/g,'');
-      const m = s.match(/([2-9TJQKA])([CDHS])([2-9TJQKA])([CDHS])/);
-      return m ? `${m[1]}${m[2].toLowerCase()}${m[3]}${m[4].toLowerCase()}` : '';
-    }
-    function updateConfidence(c){
-      if(typeof c!=='number'){ els.recConf.textContent='–'; els.recConf.className='maybe'; return; }
-      const pct = Math.round(c*100); els.recConf.textContent = pct+'%';
-      els.recConf.className = pct>=85 ? 'ok' : (pct>=60 ? 'maybe' : 'bad');
-    }
-    function logScan(d){ els.scanLog.textContent = JSON.stringify(d, null, 2); }
+  if(out.hand && /^[2-9TJQKA][cdhs][2-9TJQKA][cdhs]$/i.test(out.hand)) els.hand.value=out.hand;
+  if(out.blinds) els.blinds.value=out.blinds;
+  if(Number.isFinite(out.pot))   els.pot.value=out.pot;
+  if(Number.isFinite(out.stack)) els.stack.value=Math.round(out.stack);
 
-    // Fallback blinds
-    async function ocrFullFrameForBlinds(videoEl){
-      const vw = videoEl.videoWidth || 1280, vh = videoEl.videoHeight || 720;
-      const dw = 640, dh = Math.round(vh * (640/vw));
-      const c = document.createElement('canvas'); c.width=dw; c.height=dh;
-      const ctx = c.getContext('2d', { willReadFrequently:true });
-      ctx.drawImage(videoEl, 0, 0, dw, dh);
-      const candidates = [
-        {x:0.02,y:0.02,w:0.30,h:0.12},{x:0.68,y:0.02,w:0.30,h:0.12},{x:0.35,y:0.82,w:0.30,h:0.16},
-      ];
-      for(const r of candidates){
-        const sx=Math.floor(r.x*dw), sy=Math.floor(r.y*dh);
-        const sw=Math.floor(r.w*dw), sh=Math.floor(r.h*dh);
-        const seg=document.createElement('canvas'); seg.width=sw; seg.height=sh;
-        const sctx=seg.getContext('2d',{willReadFrequently:true});
-        sctx.drawImage(c, sx, sy, sw, sh, 0, 0, sw, sh);
-        const img=sctx.getImageData(0,0,sw,sh); toGrayscaleAndBoost(img.data); sctx.putImageData(img,0,0);
-        const res = await ocrText(seg, '0123456789/.$ ');
-        const cleaned = (res.text||'').replace(/\s/g,'');
-        const m = cleaned.match(/(\$?\d+(\.\d+)?)[/](\$?\d+(\.\d+)?)/);
-        if(m) return `${m[1].replace('$','')}/${m[3].replace('$','')}`;
-      }
-      return '';
-    }
+  logScan({blinds:out.blinds,pot:out.pot,stack:out.stack,hand:out.hand,
+           raw:{blinds:out.blindsRaw?.text||null,pot:out.potRaw?.text||null,stack:out.stackRaw?.text||null,hand:out.handRaw?.text||null},
+           confidence:+confidence.toFixed(2)});
+  updateConfidence(confidence);
+  setStatus('Scan gereed.');
+}
 
-    // --- Advies (placeholder) ---
-    const SimpleAdvisor = {
-      advise(input){
-        const deep = (()=>{
-          if(!input.stack || !input.blinds) return null;
-          const bb = parseFloat((input.blinds.split('/')[1] || input.blinds).replace(',','.'));
-          return bb ? input.stack / bb : null;
-        })();
-        if(input.positie==='BTN' && input.raisers===0) return { action:'Open-raise 2.5bb', reason:'Button, geen raise voor je, brede opening.' };
-        if(input.raisers>=1 && /A[KQJ]|QQ|JJ|TT/.test(input.hand)) return { action:'3-bet', reason:'Sterke hand vs eerdere raise.' };
-        if(input.raisers>=1 && !/A[KQJ]|QQ|JJ|TT/.test(input.hand)) return { action:'Fold', reason:'Agressie en te zwakke hand.' };
-        if(deep && deep < 30 && /[KQJT]s$/i.test(input.hand)) return { action:'Shove/3-bet jam', reason:'Short stack met suited broadway.' };
-        return { action:'Check/Fold', reason:'Default; verfijn met ranges.' };
-      }
-    };
+/* ======================= [B7] ADVISOR (placeholder) ==================== */
+const SimpleAdvisor = {
+  advise(input){
+    const deep = (()=>{ if(!input.stack||!input.blinds) return null;
+      const bb=parseFloat((input.blinds.split('/')[1]||input.blinds).replace(',','.'));
+      return bb? input.stack/bb : null; })();
 
-    // ======= Events =======
-    btnStart.addEventListener('click', startCamera);
-    btnStop.addEventListener('click', stopCamera);
-    btnCalibrate.addEventListener('click', beginCalib);
-    btnResetCalib.addEventListener('click', resetCalib);
-    btnScan.addEventListener('click', scan);
-    btnAdvice.addEventListener('click', ()=> {
-      const input = {
-        hand: els.hand.value.trim(), positie: els.positie.value,
-        players:+els.players.value||null, callers:+els.callers.value||0, raisers:+els.raisers.value||0,
-        pot:+els.pot.value||0, stack:+els.stack.value||0, blinds:els.blinds.value.trim()
-      };
-      const advies = SimpleAdvisor.advise(input);
-      alert(`Advies: ${advies.action}\n\nUitleg: ${advies.reason}`);
-    });
+    if(input.positie==='BTN' && input.raisers===0) return {action:'Open-raise 2.5bb',reason:'Button, geen raise voor je, brede opening.'};
+    if(input.raisers>=1 && /A[KQJ]|QQ|JJ|TT/.test(input.hand)) return {action:'3-bet',reason:'Sterke hand vs eerdere raise.'};
+    if(input.raisers>=1 && !/A[KQJ]|QQ|JJ|TT/.test(input.hand)) return {action:'Fold',reason:'Agressie en te zwakke hand.'};
+    if(deep && deep<30 && /[KQJT]s$/i.test(input.hand)) return {action:'Shove/3-bet jam',reason:'Short stack met suited broadway.'};
+    return {action:'Check/Fold',reason:'Default; verfijn met ranges.'};
+  }
+};
 
-  })();
+/* ============================ [B8] EVENTS ============================== */
+els.btnStart.addEventListener('click', startCamera);
+els.btnStop .addEventListener('click', stopCamera);
+els.btnFitMode.addEventListener('click', toggleFit);
+els.videoWrap.addEventListener('click', ()=>refocus());
+els.btnRefocus.addEventListener('click', ()=>refocus());
+
+els.btnCalibrate.addEventListener('click', beginCalib);
+els.btnResetCalib.addEventListener('click', resetCalib);
+els.btnScan.addEventListener('click', scan);
+els.btnAdvice.addEventListener('click', ()=>{
+  const input={
+    hand:els.hand.value.trim(), positie:els.positie.value,
+    players:+els.players.value||null, callers:+els.callers.value||0, raisers:+els.raisers.value||0,
+    pot:+els.pot.value||0, stack:+els.stack.value||0, blinds:els.blinds.value.trim()
+  };
+  const adv = SimpleAdvisor.advise(input);
+  alert(`Advies: ${adv.action}\n\nUitleg: ${adv.reason}`);
+});
+
+updateCalibUI();
   </script>
 </body>
 </html>
