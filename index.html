@@ -117,6 +117,17 @@
           <label>Laatste scan (debug):</label>
           <div id="scanLog" class="scanlog mono">Nog geen scan uitgevoerd.</div>
         </div>
+
+        <!-- Crops preview -->
+        <div style="margin-top:8px">
+          <label>Crops preview (wat OCR ziet):</label>
+          <div class="row" id="cropPreview">
+            <canvas id="pvBlinds" width="240" height="80" class="card" style="background:#000;border-radius:8px"></canvas>
+            <canvas id="pvPot"    width="240" height="80" class="card" style="background:#000;border-radius:8px"></canvas>
+            <canvas id="pvStack"  width="240" height="80" class="card" style="background:#000;border-radius:8px"></canvas>
+            <canvas id="pvHand"   width="240" height="80" class="card" style="background:#000;border-radius:8px"></canvas>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -134,7 +145,7 @@
    [B3] CAMERA LAYER (start/stop, zoom, focus, fit)
    [B4] CALIBRATIE (touch 2-tap) + OVERLAY
    [B5] OCR PIPELINE (preprocess, Tesseract, parsers, blinds fallback)
-   [B6] SCAN ORCHESTRATOR (frame → crops → OCR → velden)
+   [B6] SCAN ORCHESTRATOR (frame → crops → OCR → velden + previews)
    [B7] ADVISOR (placeholder logica)
    [B8] EVENTS (click/touch wiring)
    ========================================================================*/
@@ -179,6 +190,10 @@ const els = {
   stack: $('stack'),
   blinds: $('blinds'),
   scanLog: $('scanLog'),
+  pvBlinds: $('pvBlinds'),
+  pvPot: $('pvPot'),
+  pvStack: $('pvStack'),
+  pvHand: $('pvHand'),
 };
 function setStatus(msg){ els.status.textContent=msg; }
 function setPill(el, txt, cls){ el.textContent=txt; el.className=cls; }
@@ -202,7 +217,6 @@ async function startCamera(){
     track = stream.getVideoTracks()[0];
     caps = track.getCapabilities?.() || {};
 
-    // overlay matchen met zichtbare video-box
     const rect = els.video.getBoundingClientRect();
     els.overlay.width = rect.width; els.overlay.height = 340;
 
@@ -298,7 +312,7 @@ function drawOverlay(){
     octx.font='13px system-ui';
     octx.fillStyle='rgba(255,255,255,0.95)';
     octx.fillText(ZONE_ORDER[i],p.x+6,p.y+16);
-    octx.fillStyle='rgba(0,255,160,0.15)'; // terugzetten voor volgende rect
+    octx.fillStyle='rgba(0,255,160,0.15)';
   });
   octx.restore();
 }
@@ -326,10 +340,20 @@ function loadCalib(){ try{ return JSON.parse(localStorage.getItem('pc_calib_v1')
 function toGrayscaleAndBoost(data){
   for(let i=0;i<data.length;i+=4){
     const r=data[i], g=data[i+1], b=data[i+2];
-    let v=0.2126*r+0.7152*g+0.0722*b;      // correcte luminance
+    let v=0.2126*r+0.7152*g+0.0722*b;      // correcte luminantie
     v=(v-128)*1.2+128;                     // contrast-boost
     v=v<0?0:v>255?255:v;
     data[i]=data[i+1]=data[i+2]=v;         // grijs
+  }
+}
+function autoBinarize(data){
+  // simpele globale threshold: gemiddelde luminantie
+  let sum=0, n=0;
+  for(let i=0;i<data.length;i+=4){ sum+=data[i]; n++; }
+  const thr = (sum/n) || 128;
+  for(let i=0;i<data.length;i+=4){
+    const v = data[i] < thr ? 0 : 255;
+    data[i]=data[i+1]=data[i+2]=v;
   }
 }
 async function ocrText(canvas, whitelist){
@@ -365,7 +389,7 @@ async function ocrFullFrameForBlinds(videoEl){
     const seg=document.createElement('canvas'); seg.width=sw; seg.height=sh;
     const sctx=seg.getContext('2d',{willReadFrequently:true});
     sctx.drawImage(c,sx,sy,sw,sh,0,0,sw,sh);
-    const img=sctx.getImageData(0,0,sw,sh); toGrayscaleAndBoost(img.data); sctx.putImageData(img,0,0);
+    const img=sctx.getImageData(0,0,sw,sh); toGrayscaleAndBoost(img.data); autoBinarize(img.data); sctx.putImageData(img,0,0);
     const res=await ocrText(seg,'0123456789/.$ '); const cleaned=(res.text||'').replace(/\s/g,'');
     const m = cleaned.match(/(\$?\d+(\.\d+)?)[/](\$?\d+(\.\d+)?)/);
     if(m) return `${m[1].replace('$','')}/${m[3].replace('$','')}`;
@@ -375,18 +399,46 @@ async function ocrFullFrameForBlinds(videoEl){
 
 /* ========== [B6] SCAN ORCHESTRATOR (frame → crops → OCR → velden) ====== */
 function cropsFromCalib(vw,vh,rects){
+  const SCALE = 2.0; // upscaling voor betere OCR
   const map={};
   rects.forEach((r,i)=>{
     const name=ZONE_ORDER[i];
     const sx=Math.floor(r.x*vw), sy=Math.floor(r.y*vh);
     const sw=Math.max(1,Math.floor(r.w*vw)), sh=Math.max(1,Math.floor(r.h*vh));
-    const c=document.createElement('canvas'); c.width=sw; c.height=sh;
+
+    // Output canvas op 2×
+    const c=document.createElement('canvas'); c.width=Math.max(2, Math.floor(sw*SCALE)); c.height=Math.max(2, Math.floor(sh*SCALE));
     const ctx=c.getContext('2d',{willReadFrequently:true});
-    ctx.drawImage(frameCanvas, sx,sy,sw,sh, 0,0,sw,sh);
-    const img=ctx.getImageData(0,0,sw,sh); toGrayscaleAndBoost(img.data); ctx.putImageData(img,0,0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(frameCanvas, sx,sy,sw,sh, 0,0,c.width,c.height);
+
+    // Preprocess: grijs + contrast + binarize
+    const img=ctx.getImageData(0,0,c.width,c.height);
+    toGrayscaleAndBoost(img.data);
+    autoBinarize(img.data);
+    ctx.putImageData(img,0,0);
+
     map[name]=c;
   });
   return map;
+}
+function showPreviews(crops){
+  const pairs = [
+    [crops.Blinds, els.pvBlinds],
+    [crops.Pot,    els.pvPot],
+    [crops.Stack,  els.pvStack],
+    [crops.Hand,   els.pvHand],
+  ];
+  pairs.forEach(([src, dst])=>{
+    if(!src || !dst) return;
+    const ctx = dst.getContext('2d', { willReadFrequently:true });
+    ctx.clearRect(0,0,dst.width,dst.height);
+    const scale = Math.min(dst.width/src.width, dst.height/src.height);
+    const w = Math.floor(src.width*scale), h = Math.floor(src.height*scale);
+    const x = Math.floor((dst.width - w)/2), y = Math.floor((dst.height - h)/2);
+    ctx.drawImage(src, x, y, w, h);
+  });
 }
 function updateConfidence(c){
   const pct = Math.round((c||0)*100); els.recConf.textContent=pct+'%';
@@ -402,6 +454,8 @@ async function scan(){
   frameCanvas.width=vw; frameCanvas.height=vh; frameCtx.drawImage(els.video,0,0,vw,vh);
 
   const crops = cropsFromCalib(vw,vh,calib.rects);
+  showPreviews(crops); // << previews updaten
+
   const out = {};
 
   out.blindsRaw = await ocrText(crops.Blinds,'0123456789/.$ ');
@@ -420,10 +474,37 @@ async function scan(){
   const confs=[out.blindsRaw?.conf,out.potRaw?.conf,out.stackRaw?.conf,out.handRaw?.conf].filter(x=>typeof x==='number');
   const confidence = confs.length ? (confs.reduce((a,b)=>a+b,0)/confs.length)/100 : 0;
 
-  if(out.hand && /^[2-9TJQKA][cdhs][2-9TJQKA][cdhs]$/i.test(out.hand)) els.hand.value=out.hand;
-  if(out.blinds) els.blinds.value=out.blinds;
-  if(Number.isFinite(out.pot))   els.pot.value=out.pot;
-  if(Number.isFinite(out.stack)) els.stack.value=Math.round(out.stack);
+  // Mildere invul-fallbacks
+  // Hand
+  if(out.hand && /^[2-9TJQKA][cdhs][2-9TJQKA][cdhs]$/i.test(out.hand)){
+    els.hand.value = out.hand;
+  } else if(out.handRaw?.text){
+    const s = out.handRaw.text.toUpperCase().replace(/\s+/g,'');
+    const m = s.match(/([2-9TJQKA])[CDHS]([2-9TJQKA])[CDHS]/);
+    if(m) els.hand.value = s.slice(0,4).replace(/([CDHS])/g, d=>d.toLowerCase());
+  }
+  // Blinds
+  if(out.blinds){
+    els.blinds.value = out.blinds;
+  } else if(out.blindsRaw?.text){
+    const cleaned = out.blindsRaw.text.replace(/\s/g,'');
+    const m = cleaned.match(/(\$?\d+(?:[\.,]\d+)?)[/](\$?\d+(?:[\.,]\d+)?)/);
+    if(m){ els.blinds.value = `${m[1].replace('$','').replace(',','.')}/${m[2].replace('$','').replace(',','.')}`; }
+  }
+  // Pot
+  if(Number.isFinite(out.pot)){
+    els.pot.value = out.pot;
+  } else if(out.potRaw?.text){
+    const m = out.potRaw.text.replace(/[^\d,\.]/g,'').replace(',','.').match(/\d+(?:\.\d+)?/);
+    if(m) els.pot.value = m[0];
+  }
+  // Stack
+  if(Number.isFinite(out.stack)){
+    els.stack.value = Math.round(out.stack);
+  } else if(out.stackRaw?.text){
+    const m = out.stackRaw.text.replace(/[^\d,\.]/g,'').replace(',','.').match(/\d+(?:\.\d+)?/);
+    if(m) els.stack.value = Math.round(parseFloat(m[0]));
+  }
 
   logScan({blinds:out.blinds,pot:out.pot,stack:out.stack,hand:out.hand,
            raw:{blinds:out.blindsRaw?.text||null,pot:out.potRaw?.text||null,stack:out.stackRaw?.text||null,hand:out.handRaw?.text||null},
