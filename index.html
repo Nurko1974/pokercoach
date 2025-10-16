@@ -263,7 +263,9 @@ function toggleFit(){
 
 /* ========== [B4] CALIBRATIE (touch 2-tap) + OVERLAY TEKENING =========== */
 let calibMode=false, tapStart=null, currentRects=[];
-const octx = els.overlay.getContext('2d');
+const octx = els.overlay.getContext('2d', { alpha: true });
+octx.clearRect(0,0,els.overlay.width,els.overlay.height);
+
 function beginCalib(){
   calibMode=true; tapStart=null; currentRects=[];
   els.calibHint.textContent='Tik 2× voor: '+ZONE_ORDER[currentRects.length];
