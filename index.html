@@ -148,46 +148,52 @@ const frameCanvas = document.createElement('canvas');
 const frameCtx = frameCanvas.getContext('2d', { willReadFrequently:true });
 let calib = loadCalib();
 
+<script>
 /* ===================== [B2] DOM HOOKS & UI HELPERS ===================== */
+const $ = (id) => document.getElementById(id);
+
 const els = {
-  video: document.getElementById('camera'),
-  overlay: document.getElementById('overlay'),
-  videoWrap: document.getElementById('videoWrap'),
-  btnStart: document.getElementById('btnStart'),
-  btnStop: document.getElementById('btnStop'),
-  btnCalibrate: document.getElementById('btnCalibrate'),
-  btnResetCalib: document.getElementById('btnResetCalib'),
-  btnScan: document.getElementById('btnScan'),
-  btnAdvice: document.getElementById('btnAdvice'),
-  btnRefocus: document.getElementById('btnRefocus'),
-  btnZoomOut: document.getElementById('btnZoomOut'),
-  btnZoomIn: document.getElementById('btnZoomIn'),
-  zoomSlider: document.getElementById('zoomSlider'),
-  btnFitMode: document.getElementById('btnFitMode'),
-  status: document.getElementById('status'),
-  calibState: document.getElementById('calibState'),
-  recConf: document.getElementById('recConf'),
-  fps: document.getElementById('fps'),
-  calibHint: document.getElementById('calibHint'),
-  hand: document.getElementById('hand'),
-  positie: document.getElementById('positie'),
-  players: document.getElementById('players'),
-  callers: document.getElementById('callers'),
-  raisers: document.getElementById('raisers'),
-  pot: document.getElementById('pot'),
-  stack: document.getElementById('stack'),
-  blinds: document.getElementById('blinds'),
-  scanLog: document.getElementById('scanLog'),
+  video: $('camera'),
+  overlay: $('overlay'),
+  videoWrap: $('videoWrap'),
+  btnStart: $('btnStart'),
+  btnStop: $('btnStop'),
+  btnCalibrate: $('btnCalibrate'),
+  btnResetCalib: $('btnResetCalib'),
+  btnScan: $('btnScan'),
+  btnAdvice: $('btnAdvice'),
+  btnRefocus: $('btnRefocus'),
+  btnZoomOut: $('btnZoomOut'),
+  btnZoomIn: $('btnZoomIn'),
+  zoomSlider: $('zoomSlider'),
+  btnFitMode: $('btnFitMode'),
+  status: $('status'),
+  calibState: $('calibState'),
+  recConf: $('recConf'),
+  fps: $('fps'),
+  calibHint: $('calibHint'),
+  hand: $('hand'),
+  positie: $('positie'),
+  players: $('players'),
+  callers: $('callers'),
+  raisers: $('raisers'),
+  pot: $('pot'),
+  stack: $('stack'),
+  blinds: $('blinds'),
+  scanLog: $('scanLog'),
 };
-function setStatus(msg){ els.status.textContent=msg; }
-function setPill(el, txt, cls){ el.textContent=txt; el.className=cls; }
+
+function setStatus(msg){ els.status.textContent = msg; }
+function setPill(el, txt, cls){ el.textContent = txt; el.className = cls; }
 function updateCalibUI(){
-  if(calib?.rects?.length===ZONE_ORDER.length){
-    setPill(els.calibState,'OK','ok');
+  if (calib?.rects?.length === ZONE_ORDER.length) {
+    setPill(els.calibState, 'OK', 'ok');
   } else {
-    setPill(els.calibState,'Nodig','maybe');
+    setPill(els.calibState, 'Nodig', 'maybe');
   }
 }
+</script>
+
 
 /* ================= [B3] CAMERA LAYER (start/stop, zoom, focus, fit) ==== */
 async function startCamera(){
