@@ -202,6 +202,7 @@ async function startCamera(){
     track = stream.getVideoTracks()[0];
     caps = track.getCapabilities?.() || {};
 
+    // overlay matchen met zichtbare video-box
     const rect = els.video.getBoundingClientRect();
     els.overlay.width = rect.width; els.overlay.height = 340;
 
@@ -263,7 +264,7 @@ function toggleFit(){
 
 /* ========== [B4] CALIBRATIE (touch 2-tap) + OVERLAY TEKENING =========== */
 let calibMode=false, tapStart=null, currentRects=[];
-const octx = els.overlay.getContext('2d', { alpha: true });
+const octx = els.overlay.getContext('2d', { alpha: true }); // transparant overlay
 octx.clearRect(0,0,els.overlay.width,els.overlay.height);
 
 function beginCalib(){
@@ -285,13 +286,26 @@ function resetCalib(){ calib=null; currentRects=[]; tapStart=null; try{localStor
 }
 function drawOverlay(){
   octx.clearRect(0,0,els.overlay.width,els.overlay.height);
-  octx.lineWidth=2; octx.strokeStyle='rgba(0,255,160,0.9)'; octx.fillStyle='rgba(0,255,160,0.15)';
-  currentRects.forEach((r,i)=>{ const p=rectPx(r); octx.fillRect(p.x,p.y,p.w,p.h); octx.strokeRect(p.x,p.y,p.w,p.h);
-    octx.font='13px system-ui'; octx.fillStyle='rgba(255,255,255,0.95)'; octx.fillText(ZONE_ORDER[i],p.x+6,p.y+16); });
+  octx.save();
+  octx.lineWidth=2;
+  octx.strokeStyle='rgba(0,255,160,0.9)';
+  octx.fillStyle='rgba(0,255,160,0.15)';
+  octx.globalCompositeOperation='source-over'; // belangrijk tegen witte vlakken
+  currentRects.forEach((r,i)=>{
+    const p=rectPx(r);
+    octx.fillRect(p.x,p.y,p.w,p.h);
+    octx.strokeRect(p.x,p.y,p.w,p.h);
+    octx.font='13px system-ui';
+    octx.fillStyle='rgba(255,255,255,0.95)';
+    octx.fillText(ZONE_ORDER[i],p.x+6,p.y+16);
+    octx.fillStyle='rgba(0,255,160,0.15)'; // terugzetten voor volgende rect
+  });
+  octx.restore();
 }
 function rectPx(r){ const W=els.overlay.width,H=els.overlay.height; return {x:r.x*W,y:r.y*H,w:r.w*W,h:r.h*H}; }
 function pointToNorm(clientX,clientY){ const rect=els.overlay.getBoundingClientRect();
   const x=(clientX-rect.left)/rect.width, y=(clientY-rect.top)/rect.height; return {x:clamp(x,0,1), y:clamp(y,0,1)}; }
+// Touch & click
 els.overlay.addEventListener('touchstart',(e)=>{ if(!calibMode)return; e.preventDefault();
   const t=e.changedTouches[0]; handleTap(pointToNorm(t.clientX,t.clientY)); }, {passive:false});
 els.overlay.addEventListener('click',(e)=>{ if(!calibMode)return; handleTap(pointToNorm(e.clientX,e.clientY)); });
@@ -312,8 +326,10 @@ function loadCalib(){ try{ return JSON.parse(localStorage.getItem('pc_calib_v1')
 function toGrayscaleAndBoost(data){
   for(let i=0;i<data.length;i+=4){
     const r=data[i], g=data[i+1], b=data[i+2];
-    let v=0.2126*r+0.7152*g+0.0722+b; v=(v-128)*1.2+128; v=v<0?0:v>255?255:v;
-    data[i]=data[i+1]=data[i+2]=v;
+    let v=0.2126*r+0.7152*g+0.0722*b;      // correcte luminance
+    v=(v-128)*1.2+128;                     // contrast-boost
+    v=v<0?0:v>255?255:v;
+    data[i]=data[i+1]=data[i+2]=v;         // grijs
   }
 }
 async function ocrText(canvas, whitelist){
@@ -337,6 +353,7 @@ function parseHand(t){ if(!t?.text) return '';
   const s=t.text.toUpperCase().replace(/\s/g,''); const m=s.match(/([2-9TJQKA])([CDHS])([2-9TJQKA])([CDHS])/);
   return m ? `${m[1]}${m[2].toLowerCase()}${m[3]}${m[4].toLowerCase()}` : '';
 }
+// Fallback: zoek blinds in veelvoorkomende frame-plekken
 async function ocrFullFrameForBlinds(videoEl){
   const vw=videoEl.videoWidth||1280, vh=videoEl.videoHeight||720;
   const dw=640, dh=Math.round(vh*(640/vw));
